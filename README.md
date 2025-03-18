@@ -74,7 +74,8 @@ Before you start your simulation journey, we recommend that you read this sectio
 │   ├── ieee_802_11.py
 │   └── util_function.py
 ├── visualization
-│   └── scatter.py
+│   ├── scatter.py
+│   └── visualizer.py
 └── main.py
 ```
 The entry point of this project is the ```main.py``` file, we can even run it directly with one click to get a sneak peek, however, we recommend that you first read this section to understand the modular composition of this simulation platform and the corresponding function.
