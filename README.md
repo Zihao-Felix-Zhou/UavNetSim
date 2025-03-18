@@ -89,7 +89,7 @@ The entry point of this project is the ```main.py``` file, we can even run it di
 - ```simulator```: it contains all the classes to handle a simulation and the network performance metrics.
 - ```topology```: it includes the implementation of the topology control algorithm for UAV swarm.
 - ```utils```: it contains the key configuration parameters and some useful functions.
-- ```visualization```: it can provide visualization of the distribution of drones.
+- ```visualization```: it can provide visualization of the distribution of drones, flight trajectory and the packet forwarding paths.
 
 ## Installation and usage
 Firstly, download this project:
