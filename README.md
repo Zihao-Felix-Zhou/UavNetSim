@@ -164,7 +164,35 @@ The energy model of our platform is based on the work of Y. Zeng, et al. The fig
 </div>
 
 ### Visualization
+The GIF below shows the transmission process of data packet and ACK packet in dynamic UAV network.
+<div align="center">
+<img src="https://github.com/Zihao-Felix-Zhou/UavNetSim/blob/master/img/visualization.gif" width="1000px">
+</div>
 
+One can enable visulization in main.py:
+ ```python
+import simpy
+from utils import config
+from simulator.simulator import Simulator
+from visualization.visualizer import SimulationVisualizer
+
+if __name__ == "__main__":
+    # Simulation setup
+    env = simpy.Environment()
+    channel_states = {i: simpy.Resource(env, capacity=1) for i in range(config.NUMBER_OF_DRONES)}
+    sim = Simulator(seed=2024, env=env, channel_states=channel_states, n_drones=config.NUMBER_OF_DRONES)
+    
+    # Add the visualizer to the simulator
+    # Use 20000 microseconds (0.02s) as the visualization frame interval
+    visualizer = SimulationVisualizer(sim, output_dir=".", vis_frame_interval=20000)
+    visualizer.run_visualization()
+
+    # Run simulation
+    env.run(until=config.SIM_TIME)
+    
+    # Finalize visualization
+    visualizer.finalize()
+```
 
 ## Performance evaluation
 Our "FlyNet" platform supports the evaluation of several performance metrics, as follows:
