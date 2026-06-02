@@ -331,8 +331,8 @@ class Opar:
                     if self.simulator.env.now > waiting_pkd.creation_time + waiting_pkd.deadline:  # expired
                         self.my_drone.waiting_list.remove(waiting_pkd)
                     else:
-                        best_next_hop_id = self.next_hop_selection(waiting_pkd)
-                        if best_next_hop_id != self.my_drone.identifier:
+                        has_route, packet, _ = self.next_hop_selection(waiting_pkd)
+                        if has_route:
                             self.my_drone.transmitting_queue.put(waiting_pkd)
                             self.my_drone.waiting_list.remove(waiting_pkd)
                         else:
