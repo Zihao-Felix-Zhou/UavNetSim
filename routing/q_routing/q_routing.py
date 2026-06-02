@@ -181,11 +181,11 @@ class QRouting:
                     logger.info('At time: %s (us) ---- Data packet: %s is received by next hop UAV: %s',
                                 self.simulator.env.now, packet_copy.packet_id, self.my_drone.identifier)
 
-                    self.my_drone.transmitting_queue.put(packet_copy)
-                    packet_copy.waiting_start_time = self.simulator.env.now  # this packet starts to wait in the queue
-
                     # waiting time includes queuing delay and access delay
                     waiting_time = packet_copy.transmitting_start_time - packet_copy.waiting_start_time
+
+                    packet_copy.waiting_start_time = self.simulator.env.now  # this packet starts to wait in the queue
+                    self.my_drone.transmitting_queue.put(packet_copy)
 
                     config.GL_ID_ACK_PACKET += 1
                     src_drone = self.simulator.drones[src_drone_id]  # previous drone
