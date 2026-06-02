@@ -86,8 +86,6 @@ class Grad:
             return has_route, grad_message, enquire
         else:
             # there is no entry related to "dst_drone" in the cost table
-            self.my_drone.waiting_list.append(packet)  # put the data packet into waiting list
-
             config.GL_ID_GRAD_MESSAGE += 1
 
             # channel assignment
@@ -126,7 +124,7 @@ class Grad:
             # self.cost_table.print_item()
 
             if msg_type == "M_REQUEST":
-                if self.my_drone.identifier is target.identifier:
+                if self.my_drone.identifier == target.identifier:
                     logger.info('At time: %s (us) ---- UAV: %s receives a REQUEST message from UAV: %s, and REPLY '
                                 'message should be launched.',
                                 self.simulator.env.now, self.my_drone.identifier, src_drone_id)
@@ -193,15 +191,16 @@ class Grad:
                         pass
 
             elif msg_type == "M_REPLY":
-                if self.my_drone.identifier is packet_copy.target.identifier:
+                if self.my_drone.identifier == packet_copy.target.identifier:
                     logger.info('At time: %s (us) ---- UAV: %s receives the REPLY message originates from UAV: %s',
                                 self.simulator.env.now, self.my_drone.identifier, packet_copy.originator.identifier)
 
                     # this indicates that there is a path to dst_drone
-                    for item in self.my_drone.waiting_list:
+                    for item in list(self.my_drone.waiting_list):
                         dst_drone = item.dst_drone  # get the destination of data packet
-                        if dst_drone.identifier is packet_copy.originator.identifier:
+                        if dst_drone.identifier == packet_copy.originator.identifier:
                             self.my_drone.transmitting_queue.put(item)
+                            self.my_drone.waiting_list.remove(item)
 
                 else:
                     if packet_copy.remaining_value > 0:
