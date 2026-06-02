@@ -149,6 +149,7 @@ class QFanet:
                     void_flag = self.table.void_area_judgment(packet_copy.dst_drone)
                     reward = self.r_min if void_flag else self.r_default
 
+                    config.GL_ID_ACK_PACKET += 1
                     ack_packet = QFanetAckPacket(
                         src_drone=self.my_drone,
                         dst_drone=src_drone,
