@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { MapContainer, Rectangle, TileLayer, useMap, useMapEvents } from 'react-leaflet'
-import { Crosshair, FileUp, Map, X } from 'lucide-react'
+import { Crosshair, FileUp, LoaderCircle, Map, X } from 'lucide-react'
 
 async function responseError(response) {
   const payload = await response.json().catch(() => null)
@@ -68,11 +68,13 @@ export default function ScenePicker({ scene, onClose, onScene }) {
   const [bounds, setBounds] = useState(initialBounds)
   const [selecting, setSelecting] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [build, setBuild] = useState(null)
   const [error, setError] = useState('')
   const file = useRef()
 
   async function submitOsm() {
     setBusy(true)
+    setBuild({ progress: 0, stage: 'Submitting selected area' })
     setError('')
     try {
       const response = await fetch('/api/scene/osm', {
@@ -81,10 +83,21 @@ export default function ScenePicker({ scene, onClose, onScene }) {
         body: JSON.stringify({ name: 'OpenStreetMap Scene', bounds }),
       })
       if (!response.ok) throw await responseError(response)
-      onScene(await response.json())
+      let currentBuild = await response.json()
+      setBuild(currentBuild)
+      while (currentBuild.status === 'queued' || currentBuild.status === 'running') {
+        await new Promise((resolve) => setTimeout(resolve, 300))
+        const statusResponse = await fetch(`/api/scene/osm/${currentBuild.id}`)
+        if (!statusResponse.ok) throw await responseError(statusResponse)
+        currentBuild = await statusResponse.json()
+        setBuild(currentBuild)
+      }
+      if (currentBuild.status === 'failed') throw new Error(currentBuild.error || 'Scene build failed')
+      onScene(currentBuild.scene)
       onClose()
     } catch (requestError) {
       setError(requestError.message)
+      setBuild(null)
     } finally {
       setBusy(false)
     }
@@ -117,7 +130,7 @@ export default function ScenePicker({ scene, onClose, onScene }) {
     <div className="scene-dialog" role="dialog" aria-modal="true">
       <div className="scene-dialog__bar">
         <div><span className="eyebrow">SCENE SOURCE</span><h2>Geospatial workspace</h2></div>
-        <button className="icon-button" onClick={onClose} title="Close scene workspace"><X size={18} /></button>
+        <button className="icon-button" onClick={onClose} disabled={busy} title="Close scene workspace"><X size={18} /></button>
       </div>
       <div className="scene-dialog__map">
         <MapContainer center={[anchor.latitude, anchor.longitude]} zoom={16} zoomControl={false} preferCanvas className={selecting ? 'map-selecting' : ''}>
@@ -127,6 +140,7 @@ export default function ScenePicker({ scene, onClose, onScene }) {
         <button
           className={`map-select-button ${selecting ? 'active' : ''}`}
           aria-pressed={selecting}
+          disabled={busy}
           onClick={() => setSelecting((value) => !value)}
           title={selecting ? 'Cancel area selection' : 'Draw a rectangular OSM area'}
         >
@@ -135,16 +149,34 @@ export default function ScenePicker({ scene, onClose, onScene }) {
         </button>
       </div>
       <div className="scene-dialog__footer">
+        {build && (
+          <div className="scene-build-status" aria-live="polite">
+            <div><span>{build.stage}</span><strong>{build.progress}%</strong></div>
+            <div
+              className="scene-build-progress"
+              role="progressbar"
+              aria-label="Scene build progress"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-valuenow={build.progress}
+            >
+              <i style={{ width: `${build.progress}%` }} />
+            </div>
+          </div>
+        )}
         <div className="bounds-grid">
           {['south', 'west', 'north', 'east'].map((key) => (
-            <label key={key}><span>{key.toUpperCase()}</span><input type="number" step="0.0001" value={bounds[key]} onChange={(event) => setBounds({ ...bounds, [key]: Number(event.target.value) })} /></label>
+            <label key={key}><span>{key.toUpperCase()}</span><input type="number" step="0.0001" value={bounds[key]} disabled={busy} onChange={(event) => setBounds({ ...bounds, [key]: Number(event.target.value) })} /></label>
           ))}
         </div>
         <div className="scene-actions">
           {error && <span className="error-text">{error}</span>}
           <input ref={file} type="file" accept="application/json,.json" hidden onChange={importFile} />
           <button className="secondary-button" onClick={() => file.current?.click()} disabled={busy}><FileUp size={16} /> Import JSON</button>
-          <button className="primary-button" onClick={submitOsm} disabled={busy}><Map size={16} /> {busy ? 'Building scene' : 'Build from OSM'}</button>
+          <button className="primary-button" onClick={submitOsm} disabled={busy}>
+            {busy ? <LoaderCircle className="spin" size={16} /> : <Map size={16} />}
+            {busy ? `Building ${build?.progress || 0}%` : 'Build from OSM'}
+          </button>
         </div>
       </div>
     </div>

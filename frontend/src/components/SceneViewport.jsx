@@ -9,6 +9,8 @@ const MATERIAL_COLORS = {
   itu_glass: '#4f747c',
   itu_metal: '#8b9294',
   itu_wood: '#74644f',
+  itu_medium_dry_ground: '#52604d',
+  itu_wet_ground: '#315a68',
 }
 
 function CameraTarget({ scene }) {
@@ -16,14 +18,23 @@ function CameraTarget({ scene }) {
   const { camera } = useThree()
   useEffect(() => {
     const scale = Math.max(scene.size_x, scene.size_y)
-    camera.position.set(scene.size_x * 0.72, scale * 0.7, scene.size_y * 0.42)
-    controls.current?.target.set(scene.size_x / 2, 15, -scene.size_y / 2)
+    const relief = Math.max(0, ...(scene.terrain?.vertices || []).map((point) => point.z))
+    camera.position.set(
+      scene.size_x * 1.25,
+      Math.max(scale, relief + scale * 0.65),
+      scene.size_y * 0.75,
+    )
+    controls.current?.target.set(scene.size_x / 2, relief * 0.28 + 12, -scene.size_y / 2)
     controls.current?.update()
   }, [camera, scene])
   return <OrbitControls ref={controls} makeDefault maxPolarAngle={Math.PI / 2.05} minDistance={40} maxDistance={1800} />
 }
 
 function Building({ feature, selected }) {
+  const baseHeight = useMemo(
+    () => feature.footprint.reduce((total, point) => total + (point.z || 0), 0) / feature.footprint.length,
+    [feature],
+  )
   const geometry = useMemo(() => {
     const shape = new THREE.Shape()
     feature.footprint.forEach((point, index) => {
@@ -39,12 +50,69 @@ function Building({ feature, selected }) {
     return result
   }, [feature])
   return (
-    <mesh geometry={geometry} castShadow receiveShadow>
+    <mesh geometry={geometry} position={[0, baseHeight, 0]} castShadow receiveShadow>
       <meshStandardMaterial
         color={MATERIAL_COLORS[feature.material] || MATERIAL_COLORS.itu_concrete}
         roughness={selected ? 0.36 : 0.62}
         metalness={feature.material === 'itu_metal' ? 0.52 : 0.08}
       />
+    </mesh>
+  )
+}
+
+function Surface({ feature }) {
+  const baseHeight = useMemo(
+    () => feature.footprint.reduce((total, point) => total + (point.z || 0), 0) / feature.footprint.length,
+    [feature],
+  )
+  const geometry = useMemo(() => {
+    const shape = new THREE.Shape()
+    feature.footprint.forEach((point, index) => {
+      if (index === 0) shape.moveTo(point.x, point.y)
+      else shape.lineTo(point.x, point.y)
+    })
+    shape.closePath()
+    const result = new THREE.ShapeGeometry(shape)
+    result.rotateX(-Math.PI / 2)
+    return result
+  }, [feature])
+  return (
+    <mesh geometry={geometry} position={[0, baseHeight + (feature.category === 'water' ? 0.11 : 0.07), 0]} receiveShadow>
+      <meshStandardMaterial
+        color={MATERIAL_COLORS[feature.material] || MATERIAL_COLORS.itu_medium_dry_ground}
+        roughness={feature.category === 'water' ? 0.28 : 0.96}
+        metalness={feature.category === 'water' ? 0.08 : 0}
+      />
+    </mesh>
+  )
+}
+
+function Terrain({ terrain }) {
+  const geometry = useMemo(() => {
+    const result = new THREE.BufferGeometry()
+    const elevations = terrain.vertices.map((point) => point.z)
+    const minimum = Math.min(...elevations)
+    const range = Math.max(1, Math.max(...elevations) - minimum)
+    const lowColor = new THREE.Color('#35413c')
+    const highColor = new THREE.Color('#647069')
+    result.setAttribute('position', new THREE.Float32BufferAttribute(
+      terrain.vertices.flatMap((point) => [point.x, point.z, -point.y]),
+      3,
+    ))
+    result.setAttribute('color', new THREE.Float32BufferAttribute(
+      terrain.vertices.flatMap((point) => {
+        const color = lowColor.clone().lerp(highColor, (point.z - minimum) / range)
+        return [color.r, color.g, color.b]
+      }),
+      3,
+    ))
+    result.setIndex(terrain.faces.flat())
+    result.computeVertexNormals()
+    return result
+  }, [terrain])
+  return (
+    <mesh geometry={geometry} receiveShadow>
+      <meshBasicMaterial vertexColors side={THREE.DoubleSide} />
     </mesh>
   )
 }
@@ -111,14 +179,17 @@ export default function SceneViewport({ scene, nodes, arcs, selectedNode, onSele
       <fog attach="fog" args={['#171a1c', 650, 1600]} />
       <ambientLight intensity={0.58} />
       <directionalLight position={[250, 500, 180]} intensity={1.9} castShadow shadow-mapSize={[2048, 2048]} />
-      <mesh position={[scene.size_x / 2, -0.2, -scene.size_y / 2]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[scene.size_x + 100, scene.size_y + 100]} />
-        <meshStandardMaterial color="#24282a" roughness={0.92} />
-      </mesh>
-      <Grid position={[scene.size_x / 2, 0, -scene.size_y / 2]} args={[scene.size_x, scene.size_y]} cellSize={20} cellThickness={0.45} cellColor="#42494b" sectionSize={100} sectionThickness={0.8} sectionColor="#5d6668" fadeDistance={900} />
+      {scene.terrain
+        ? <Terrain terrain={scene.terrain} />
+        : <mesh position={[scene.size_x / 2, -0.2, -scene.size_y / 2]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+          <planeGeometry args={[scene.size_x + 100, scene.size_y + 100]} />
+          <meshStandardMaterial color="#24282a" roughness={0.92} />
+        </mesh>}
+      {!scene.terrain && <Grid position={[scene.size_x / 2, 0, -scene.size_y / 2]} args={[scene.size_x, scene.size_y]} cellSize={20} cellThickness={0.45} cellColor="#42494b" sectionSize={100} sectionThickness={0.8} sectionColor="#5d6668" fadeDistance={900} />}
       {scene.features.filter((feature) => feature.category === 'building').map((feature) => <Building key={feature.id} feature={feature} />)}
+      {scene.features.filter((feature) => feature.category === 'water' || (!scene.terrain && feature.category === 'terrain')).map((feature) => <Surface key={feature.id} feature={feature} />)}
       {scene.features.filter((feature) => feature.category === 'road').map((feature) => (
-        <Line key={feature.id} points={feature.footprint.map((point) => [point.x, 0.22, -point.y])} color="#697173" lineWidth={3} />
+        <Line key={feature.id} points={feature.footprint.map((point) => [point.x, (point.z || 0) + 0.22, -point.y])} color="#697173" lineWidth={3} />
       ))}
       {nodes.map((node) => <Drone key={node.id} node={node} selected={selectedNode === node.id} onSelect={onSelectNode} />)}
       {arcs.map((arc) => <PacketArc key={`${arc.id}-${arc.destination}`} arc={arc} nodes={nodes} />)}

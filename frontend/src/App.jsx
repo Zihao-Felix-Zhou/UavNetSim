@@ -204,6 +204,7 @@ export default function App() {
   const statusValue = state.status === 'preparing' ? `${traceProgress.toFixed(0)}%` : `${((state.sim_time_us || 0) / 1e6).toFixed(2)} s`
   const latestLink = events.findLast((event) => event.event_type.startsWith('packet_rx_'))
   const buildings = scene?.features.filter((feature) => feature.category === 'building').length || 0
+  const terrainRelief = scene?.terrain ? Math.max(0, ...scene.terrain.vertices.map((point) => point.z)) : 0
   const settingsLocked = ACTIVE_STATUSES.includes(state.status)
   const routingParameterDefinitions = options.routing_parameters[settings.routing] || {}
   const setSetting = (key, value) => setSettings((current) => ({ ...current, [key]: value }))
@@ -284,7 +285,7 @@ export default function App() {
           <button className="scene-heading" onClick={() => setScenePicker(true)} title="Change scene">
             <span><small>ACTIVE SCENE</small><strong>{scene.name}</strong></span><MapPinned size={18} />
           </button>
-          <div className="scene-facts"><span>{scene.size_x.toFixed(0)} x {scene.size_y.toFixed(0)} m</span><span>{buildings} structures</span></div>
+          <div className="scene-facts"><span>{scene.size_x.toFixed(0)} x {scene.size_y.toFixed(0)} m</span><span>{buildings} structures{scene.terrain ? ` / ${terrainRelief.toFixed(0)} m relief` : ''}</span></div>
           <div className="layer-stack">
             <LayerSection index="01" title="SIMULATION / UAV" open={openLayers.simulation} disabled={settingsLocked} onToggle={() => toggleLayer('simulation')}>
               <div className="field-row"><Field label="Nodes"><input type="number" min="2" max="50" value={settings.node_count} onChange={(event) => setSetting('node_count', Number(event.target.value))} /></Field><Field label="Duration"><div className="input-unit"><input type="number" min="1" max="3600" value={settings.duration_seconds} onChange={(event) => setSetting('duration_seconds', Number(event.target.value))} /><span>s</span></div></Field></div>
