@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "name": "Riverside Research District",
+  "anchor": {"latitude": 23.1065, "longitude": 113.3248},
+  "size_x": 600.0,
+  "size_y": 600.0,
+  "features": [
+    {"id": "lab-a", "category": "building", "height": 42.0, "material": "itu_concrete", "source": "demo", "footprint": [{"x": 90, "y": 150}, {"x": 210, "y": 150}, {"x": 210, "y": 245}, {"x": 90, "y": 245}]},
+    {"id": "lab-b", "category": "building", "height": 28.0, "material": "itu_glass", "source": "demo", "footprint": [{"x": 345, "y": 115}, {"x": 490, "y": 115}, {"x": 490, "y": 195}, {"x": 345, "y": 195}]},
+    {"id": "tower", "category": "building", "height": 76.0, "material": "itu_glass", "source": "demo", "footprint": [{"x": 265, "y": 265}, {"x": 355, "y": 265}, {"x": 355, "y": 355}, {"x": 265, "y": 355}]},
+    {"id": "hangar", "category": "building", "height": 18.0, "material": "itu_metal", "source": "demo", "footprint": [{"x": 70, "y": 415}, {"x": 260, "y": 415}, {"x": 260, "y": 520}, {"x": 70, "y": 520}]},
+    {"id": "residence", "category": "building", "height": 34.0, "material": "itu_brick", "source": "demo", "footprint": [{"x": 395, "y": 395}, {"x": 520, "y": 395}, {"x": 520, "y": 520}, {"x": 395, "y": 520}]},
+    {"id": "avenue-x", "category": "road", "height": 0.0, "material": "itu_concrete", "source": "demo", "footprint": [{"x": 0, "y": 380}, {"x": 600, "y": 380}]},
+    {"id": "avenue-y", "category": "road", "height": 0.0, "material": "itu_concrete", "source": "demo", "footprint": [{"x": 375, "y": 0}, {"x": 375, "y": 600}]}
+  ]
+}
