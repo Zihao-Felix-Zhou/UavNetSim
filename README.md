@@ -34,10 +34,6 @@ This repository corresponds to our following paper. In addition, we have also up
 > <sup>4</sup> Department of Electrical and Electronic Engineering, University College London <br>
 > <sup>5</sup> Yonsei Frontier Lab, Yonsei University
 
-<div align="center">
-<img src="https://github.com/Zihao-Felix-Zhou/UavNetSim-v1/blob/master/img/Schematic_of_uav_swarms.png" width="1000px">
-</div>
-
 ## Requirements
 - matplotlib==3.10.1
 - numpy==2.2.4
