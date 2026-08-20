@@ -66,7 +66,13 @@ class EnergyModel:
             yield self.my_drone.simulator.env.timeout(1 * 1e5)  # report residual energy every 0.1s
             if self.my_drone.residual_energy <= config.ENERGY_THRESHOLD:
                 self.my_drone.sleep = True
-                # print('UAV: ', self.identifier, ' run out of energy at: ', self.env.now)
+                self.my_drone.simulator.event_bus.publish(
+                    "node_sleep",
+                    self.my_drone.simulator.env.now,
+                    node=self.my_drone.identifier,
+                    energy_j=self.my_drone.residual_energy,
+                )
+                break
 
     def test(self):
         total_power = []

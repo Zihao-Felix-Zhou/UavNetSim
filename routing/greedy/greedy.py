@@ -5,6 +5,7 @@ from entities.packet import DataPacket, AckPacket
 from topology.virtual_force.vf_packet import VfPacket
 from routing.greedy.greedy_neighbor_table import GreedyNeighborTable
 from routing.greedy.greedy_packet import GreedyHelloPacket
+from routing.parameters import routing_interval_us
 from utils import config
 
 
@@ -37,7 +38,7 @@ class Greedy:
         self.simulator = simulator
         self.my_drone = my_drone
         self.rng_routing = random.Random(self.my_drone.identifier + self.my_drone.simulator.seed + 10)
-        self.hello_interval = 0.5 * 1e6  # broadcast hello packet every 0.5s
+        self.hello_interval = routing_interval_us("hello_interval_s", 0.5)
         self.check_interval = 0.6 * 1e6
         self.neighbor_table = GreedyNeighborTable(self.simulator.env, my_drone)
         self.simulator.env.process(self.broadcast_hello_packet_periodically())
@@ -146,7 +147,6 @@ class Greedy:
                     ack_packet.increase_ttl()
                     self.my_drone.mac_protocol.phy.unicast(ack_packet, src_drone_id)
                     yield self.simulator.env.timeout(ack_packet.packet_length / config.BIT_RATE * 1e6)
-                    self.simulator.drones[src_drone_id].receive()
                 else:
                     pass
             else:
@@ -173,7 +173,6 @@ class Greedy:
                         ack_packet.increase_ttl()
                         self.my_drone.mac_protocol.phy.unicast(ack_packet, src_drone_id)
                         yield self.simulator.env.timeout(ack_packet.packet_length / config.BIT_RATE * 1e6)
-                        self.simulator.drones[src_drone_id].receive()
                     else:
                         pass
                 else:  # the queue is full, discard this packet and no ACK reply

@@ -6,6 +6,7 @@ from routing.qmr import qmr_config
 from routing.qmr.history_packets_recorder import HistoryPacketsRecorder
 from routing.qmr.qmr_table import QMRTable
 from routing.qmr.qmr_packet import QMRHelloPacket, QMRAckPacket
+from routing.parameters import routing_interval_us, routing_parameter
 from utils import config
 
 
@@ -29,8 +30,8 @@ class QMR:
         self.history_packet_recorder = HistoryPacketsRecorder(self.simulator.n_drones)
         self.rng_routing = random.Random(self.my_drone.identifier + self.my_drone.simulator.seed + 10)
 
-        self.eps = 0.8  # epsilon-greedy
-        self.hello_interval = 0.5 * 1e6  # broadcast hello packet periodically
+        self.eps = routing_parameter("epsilon", 0.8)
+        self.hello_interval = routing_interval_us("hello_interval_s", 0.5)
 
         self.first_hello = True
 
@@ -165,7 +166,6 @@ class QMR:
                 ack_packet.increase_ttl()
                 self.my_drone.mac_protocol.phy.unicast(ack_packet, src_drone_id)
                 yield self.simulator.env.timeout(ack_packet.packet_length / config.BIT_RATE * 1e6)
-                self.simulator.drones[src_drone_id].receive()
             else:
                 pass
 
@@ -245,7 +245,7 @@ class QMR:
     def update_eps(self):
         while True:
             yield self.simulator.env.timeout(self.hello_interval)
-            self.eps = max(qmr_config.eps_decay * self.eps, 0.2)
+            self.eps = max(routing_parameter("epsilon_decay", qmr_config.eps_decay) * self.eps, 0.2)
 
     def penalize(self, packet):
         pass

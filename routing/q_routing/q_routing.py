@@ -5,6 +5,7 @@ from entities.packet import DataPacket
 from topology.virtual_force.vf_packet import VfPacket
 from routing.q_routing.q_routing_packet import QRoutingHelloPacket, QRoutingAckPacket
 from routing.q_routing.q_routing_table import QRoutingTable
+from routing.parameters import routing_interval_us, routing_parameter
 from utils import config
 
 
@@ -57,9 +58,9 @@ class QRouting:
         self.simulator = simulator
         self.my_drone = my_drone
         self.rng_routing = random.Random(self.my_drone.identifier + self.my_drone.simulator.seed + 10)
-        self.hello_interval = 0.5 * 1e6  # broadcast hello packet every 0.5s
+        self.hello_interval = routing_interval_us("hello_interval_s", 0.5)
         self.check_interval = 0.6 * 1e6
-        self.learning_rate = 0.5
+        self.learning_rate = routing_parameter("learning_rate", 0.5)
         self.table = QRoutingTable(self.simulator.env, my_drone,self.rng_routing)
         self.simulator.env.process(self.broadcast_hello_packet_periodically())
         self.simulator.env.process(self.check_waiting_list())
@@ -173,7 +174,6 @@ class QRouting:
                     ack_packet.increase_ttl()
                     self.my_drone.mac_protocol.phy.unicast(ack_packet, src_drone_id)
                     yield self.simulator.env.timeout(ack_packet.packet_length / config.BIT_RATE * 1e6)
-                    self.simulator.drones[src_drone_id].receive()
                 else:
                     pass
             else:
@@ -209,7 +209,6 @@ class QRouting:
                         ack_packet.increase_ttl()
                         self.my_drone.mac_protocol.phy.unicast(ack_packet, src_drone_id)
                         yield self.simulator.env.timeout(ack_packet.packet_length / config.BIT_RATE * 1e6)
-                        self.simulator.drones[src_drone_id].receive()
                     else:
                         pass
                 else:

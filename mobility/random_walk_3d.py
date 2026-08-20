@@ -57,12 +57,13 @@ class RandomWalk3D:
 
         self.my_drone.simulator.env.process(self.mobility_update(self.my_drone))
         self.trajectory = []
-        self.my_drone.simulator.env.process(self.show_trajectory())
 
         self.rng_mobility = random.Random(self.my_drone.identifier+self.my_drone.simulator.seed + 1)
 
     def mobility_update(self, drone):
         while True:
+            if drone.sleep:
+                break
             env = drone.simulator.env
             drone_id = drone.identifier
             cur_position = drone.coords
@@ -113,14 +114,17 @@ class RandomWalk3D:
             next_position, next_velocity, next_direction, next_pitch = self.boundary_test(next_position, next_velocity,
                                                                                           next_direction, next_pitch)
 
-            drone.coords = next_position
+            collision = drone.move_to(next_position, next_velocity)
+            next_velocity = drone.velocity
+            if collision is not None:
+                next_direction = math.atan2(next_velocity[1], next_velocity[0])
+                next_pitch = math.atan2(next_velocity[2], math.hypot(next_velocity[0], next_velocity[1]))
             drone.direction = next_direction
             drone.pitch = next_pitch
-            drone.velocity = next_velocity
 
             yield env.timeout(self.position_update_interval)
             energy_consumption = (self.position_update_interval / 1e6) * drone.energy_model.power_consumption(drone.speed)
-            drone.residual_energy -= energy_consumption
+            drone.residual_energy = max(0.0, drone.residual_energy - energy_consumption)
 
     def show_trajectory(self):
         x = []

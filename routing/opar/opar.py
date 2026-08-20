@@ -6,7 +6,8 @@ from entities.packet import DataPacket, AckPacket
 from topology.virtual_force.vf_packet import VfPacket
 from utils import config
 from utils.util_function import euclidean_distance_3d
-from phy.large_scale_fading import maximum_communication_range
+from utils.radio import routing_neighbor_distance
+from routing.parameters import routing_parameter
 
 
 class Opar:
@@ -41,10 +42,10 @@ class Opar:
         self.best_obj = 0
         self.best_path = None
 
-        self.w1 = 0.5
-        self.w2 = 0.5
+        self.w1 = routing_parameter("cost_weight", 0.5)
+        self.w2 = routing_parameter("lifetime_weight", 0.5)
 
-        self.max_comm_range = maximum_communication_range()
+        self.max_comm_range = routing_neighbor_distance()
         self.simulator.env.process(self.check_waiting_list())
 
     def calculate_cost_matrix(self):
@@ -251,7 +252,6 @@ class Opar:
                     ack_packet.increase_ttl()
                     self.my_drone.mac_protocol.phy.unicast(ack_packet, src_drone_id)
                     yield self.simulator.env.timeout(ack_packet.packet_length / config.BIT_RATE * 1e6)
-                    self.simulator.drones[src_drone_id].receive()
                 else:
                     pass
             else:
@@ -278,7 +278,6 @@ class Opar:
                         ack_packet.increase_ttl()
                         self.my_drone.mac_protocol.phy.unicast(ack_packet, src_drone_id)
                         yield self.simulator.env.timeout(ack_packet.packet_length / config.BIT_RATE * 1e6)
-                        self.simulator.drones[src_drone_id].receive()
                     else:
                         pass
                 else:

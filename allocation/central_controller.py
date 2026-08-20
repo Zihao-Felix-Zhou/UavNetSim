@@ -1,4 +1,3 @@
-from phy.large_scale_fading import general_path_loss
 from utils import config
 from sko.GA import GA
 
@@ -26,14 +25,21 @@ class CentralController:
         """Fitness function of the genetic algorithm, the goal is to minimize the total interference at all drones"""
         fitness = 0
         c = 0.5  # overlapping channel factor
+        identifiers = [drone.identifier for drone in self.simulator.drones]
+        gains = self.simulator.channel.channel_model.gains(
+            self.simulator.env.now,
+            self.simulator.drones,
+            identifiers,
+            identifiers,
+        )
 
         for drone1 in self.simulator.drones:  # viewed as the potential receiver
             for drone2 in self.simulator.drones:  # viewed as the potential interference source
                 if drone1.identifier != drone2.identifier:
                     w = max(1 - abs(x[drone1.identifier] - x[drone2.identifier]) * c, 0)
 
-                    interference_link_path_loss = general_path_loss(drone1, drone2)
-                    fitness += w * (config.TRANSMITTING_POWER * interference_link_path_loss) * 1e8
+                    channel_gain = gains[(drone2.identifier, drone1.identifier)]
+                    fitness += w * config.TRANSMITTING_POWER * channel_gain * 1e8
 
         return fitness
 

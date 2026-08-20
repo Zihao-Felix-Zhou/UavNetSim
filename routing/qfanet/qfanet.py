@@ -1,11 +1,10 @@
 import copy
 import random
-from utils.util_function import has_intersection
-from phy.large_scale_fading import sinr_calculator
 from simulator.log import logger
 from entities.packet import DataPacket
 from routing.qfanet.qfanet_packet import QFanetHelloPacket, QFanetAckPacket
 from routing.qfanet.qfanet_table import QFanetTable
+from routing.parameters import routing_interval_us, routing_parameter
 from utils import config
 
 
@@ -26,14 +25,14 @@ class QFanet:
         self.my_drone = my_drone
         self.rng_routing = random.Random(my_drone.identifier + simulator.seed + 20)
 
-        self.hello_interval = 0.5 * 1e6
+        self.hello_interval = routing_interval_us("hello_interval_s", 0.5)
         self.check_interval = 0.6 * 1e6
-        self.learning_rate = 0.6  # fixed alpha
+        self.learning_rate = routing_parameter("learning_rate", 0.6)
         self.discount_factor = 1.0  # fixed discount factor
-        self.lookback = 10  # history window size
-        self.sinr_weight = 0.7  # SINR weight
+        self.lookback = int(routing_parameter("history_window", 10))
+        self.sinr_weight = routing_parameter("sinr_weight", 0.7)
 
-        self.eps = 0.9
+        self.eps = routing_parameter("epsilon", 0.9)
         self.r_max = 100
         self.r_min = -100
         self.r_default = 50
@@ -171,7 +170,6 @@ class QFanet:
                     ack_packet.increase_ttl()
                     self.my_drone.mac_protocol.phy.unicast(ack_packet, src_drone_id)
                     yield self.simulator.env.timeout(ack_packet.packet_length / config.BIT_RATE * 1e6)
-                    self.simulator.drones[src_drone_id].receive()
                 else:
                     pass
 
@@ -217,11 +215,11 @@ class QFanet:
 
     def cal_p2p_sinr(self, data_packet, previous_drone_id):
         """Calculate point to point sinr"""
-        main_drones_list = [[previous_drone_id, data_packet.channel_id]]
-        all_transmitting = self.get_current_transmitting_nodes()
-        sinr_list = sinr_calculator(self.my_drone, main_drones_list, all_transmitting)
-        current_sinr = sinr_list[0]  # only one main transmitter
-        return current_sinr
+        return self.simulator.channel.point_to_point_sinr(
+            self.my_drone.identifier,
+            previous_drone_id,
+            data_packet.channel_id,
+        )
 
     def penalize(self, packet):
         dst_id = packet.dst_drone.identifier
@@ -236,15 +234,7 @@ class QFanet:
 
     def get_current_transmitting_nodes(self):
         """Get all the nodes that are currently transmitting"""
-        transmitting_nodes = []
-        for drone in self.simulator.drones:
-            for item in drone.inbox:
-                packet = item[0]
-                insertion_time = item[1]
-                transmitter = item[2]
-                channel_used = item[4]
-                transmitting_time = packet.packet_length / config.BIT_RATE * 1e6
-                interval = [insertion_time, insertion_time + transmitting_time]
-                if has_intersection(interval, [self.env.now, self.env.now]):
-                    transmitting_nodes.append([transmitter, channel_used])
-        return [list(x) for x in {tuple(i) for i in transmitting_nodes}]
+        return [
+            [item.transmitter_id, item.channel_id]
+            for item in self.simulator.channel.current_transmitters()
+        ]

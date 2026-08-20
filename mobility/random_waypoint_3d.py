@@ -53,7 +53,6 @@ class RandomWaypoint3D:
 
         self.my_drone.simulator.env.process(self.mobility_update(self.my_drone))
         self.trajectory = []
-        self.my_drone.simulator.env.process(self.show_trajectory())
 
     def waypoint_generator(self, start_coords):
         for i in range(self.waypoint_num):
@@ -61,35 +60,11 @@ class RandomWaypoint3D:
                 last_waypoint = start_coords
             else:
                 last_waypoint = self.waypoint_coords[i-1]
-
-            ranges_x = []
-            if last_waypoint[0] - self.waypoint_spacing_x > self.min_x:
-                ranges_x.append([0, last_waypoint[0] - self.waypoint_spacing_x])
-            if last_waypoint[0] + self.waypoint_spacing_x < self.max_x:
-                ranges_x.append([last_waypoint[0] + self.waypoint_spacing_x, self.max_x])
-
-            which_range_x = self.rng_mobility.choice(ranges_x)
-            waypoint_x = self.rng_mobility.uniform(which_range_x[0], which_range_x[1])
-
-            ranges_y = []
-            if last_waypoint[1] - self.waypoint_spacing_y > self.min_y:
-                ranges_y.append([0, last_waypoint[1] - self.waypoint_spacing_y])
-            if last_waypoint[1] + self.waypoint_spacing_y < self.max_y:
-                ranges_y.append([last_waypoint[1] + self.waypoint_spacing_y, self.max_y])
-
-            which_range_y = self.rng_mobility.choice(ranges_y)
-            waypoint_y = self.rng_mobility.uniform(which_range_y[0], which_range_y[1])
-
-            ranges_z = []
-            if last_waypoint[2] - self.waypoint_spacing_z > self.min_z:
-                ranges_z.append([0, last_waypoint[2] - self.waypoint_spacing_z])
-            if last_waypoint[2] + self.waypoint_spacing_z < self.max_z:
-                ranges_z.append([last_waypoint[2] + self.waypoint_spacing_z, self.max_z])
-
-            which_range_z = self.rng_mobility.choice(ranges_z)
-            waypoint_z = self.rng_mobility.uniform(which_range_z[0], which_range_z[1])
-
-            next_waypoint = [waypoint_x, waypoint_y, waypoint_z]
+            next_waypoint = self.my_drone.simulator.airspace.random_free_position(
+                self.rng_mobility,
+                visible_from=last_waypoint,
+                minimum_distance=self.waypoint_spacing_x,
+            )
             self.waypoint_coords.append(next_waypoint)
 
     def get_first_unvisited_waypoint(self):
@@ -102,6 +77,8 @@ class RandomWaypoint3D:
 
     def mobility_update(self, drone):
         while True:
+            if drone.sleep:
+                break
             env = drone.simulator.env
             drone_id = drone.identifier
             drone_speed = drone.speed
@@ -121,18 +98,26 @@ class RandomWaypoint3D:
 
             next_position = [next_position_x, next_position_y, next_position_z]
 
+            collision = drone.move_to(next_position, drone.velocity)
+            if collision is not None and target_waypoint_idx >= 0:
+                target_waypoint = drone.simulator.airspace.random_free_position(
+                    self.rng_mobility,
+                    visible_from=drone.coords,
+                    minimum_distance=self.waypoint_spacing_x,
+                )
+                self.waypoint_coords[target_waypoint_idx] = target_waypoint
+
             if drone_id == 1:
-                self.trajectory.append(next_position)
+                self.trajectory.append(list(drone.coords))
 
             # judge if the drone has reach the target waypoint
-            if euclidean_distance_3d(next_position, target_waypoint) < self.arrival_flag:
+            if target_waypoint_idx >= 0 and euclidean_distance_3d(drone.coords, target_waypoint) < self.arrival_flag:
                 self.waypoint_visited[target_waypoint_idx] = 1
                 yield env.timeout(self.pause_time)
 
-            drone.coords = next_position
             yield env.timeout(self.position_update_interval)
             energy_consumption = (self.position_update_interval / 1e6) * drone.energy_model.power_consumption(drone.speed)
-            drone.residual_energy -= energy_consumption
+            drone.residual_energy = max(0.0, drone.residual_energy - energy_consumption)
 
     def show_trajectory(self):
         print(self.waypoint_coords)

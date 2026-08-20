@@ -5,6 +5,7 @@ from entities.packet import DataPacket, AckPacket
 from topology.virtual_force.vf_packet import VfPacket
 from routing.dsdv.dsdv_packet import DsdvHelloPacket
 from routing.dsdv.dsdv_routing_table import DsdvRoutingTable
+from routing.parameters import routing_interval_us
 from utils import config
 
 
@@ -40,8 +41,8 @@ class Dsdv:
         self.simulator = simulator
         self.my_drone = my_drone
         self.rng_routing = random.Random(self.my_drone.identifier + self.my_drone.simulator.seed + 10)
-        self.hello_interval = 0.5 * 1e6  # broadcast routing table periodically
-        self.purge_interval = 0.5 * 1e6  # check broken links periodically
+        self.hello_interval = routing_interval_us("hello_interval_s", 0.5)
+        self.purge_interval = routing_interval_us("purge_interval_s", 0.5)
         self.check_interval = 0.6 * 1e6  # check waiting list of drone periodically
         self.routing_table = DsdvRoutingTable(self.simulator.env, my_drone)
         self.processed_hello_packet = []
@@ -204,7 +205,6 @@ class Dsdv:
                     ack_packet.increase_ttl()
                     self.my_drone.mac_protocol.phy.unicast(ack_packet, src_drone_id)
                     yield self.simulator.env.timeout(ack_packet.packet_length / config.BIT_RATE * 1e6)
-                    self.simulator.drones[src_drone_id].receive()
                 else:
                     pass
             else:
@@ -231,7 +231,6 @@ class Dsdv:
                         ack_packet.increase_ttl()
                         self.my_drone.mac_protocol.phy.unicast(ack_packet, src_drone_id)
                         yield self.simulator.env.timeout(ack_packet.packet_length / config.BIT_RATE * 1e6)
-                        self.simulator.drones[src_drone_id].receive()
                     else:
                         pass
                 else:

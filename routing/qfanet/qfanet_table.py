@@ -3,7 +3,8 @@ from collections import defaultdict
 from utils import util_function
 from routing.base.base_table import BaseTable
 from utils.util_function import euclidean_distance_3d
-from phy.large_scale_fading import maximum_communication_range
+from routing.parameters import routing_parameter
+from utils.radio import routing_neighbor_distance
 
 
 class QFanetTable(BaseTable):
@@ -28,11 +29,13 @@ class QFanetTable(BaseTable):
         self.my_drone = my_drone
         self.rng_routing = rng_routing
         self.table = defaultdict(lambda: [None, None, 0, [], defaultdict(list), None, 0])
-        self.lookback = 10  # history window size
+        self.lookback = int(routing_parameter("history_window", 10))
+        self.learning_rate = routing_parameter("learning_rate", 0.6)
+        self.sinr_weight = routing_parameter("sinr_weight", 0.7)
 
         n_drones = my_drone.simulator.n_drones
         self.q_table = np.full((n_drones, n_drones), 0.5)
-        self.max_comm_range = maximum_communication_range()
+        self.max_comm_range = routing_neighbor_distance()
 
     def is_item(self, drone_id):
         """Check if the drone is a neighbor"""
@@ -157,9 +160,9 @@ class QFanetTable(BaseTable):
             lookback_rewards.insert(0, 0)
         weighted_historical = sum(w * r for w, r in zip(weights, lookback_rewards))
 
-        self.q_table[next_hop_id][dst_id] = (1 - 0.6) * weighted_historical + \
-                                            0.6 * reward + \
-                                            (0.7 * sinr_eta)
+        self.q_table[next_hop_id][dst_id] = (1 - self.learning_rate) * weighted_historical + \
+                                            self.learning_rate * reward + \
+                                            self.sinr_weight * sinr_eta
 
         self.table[next_hop_id][4][dst_id].append(reward)
         self.table[next_hop_id][4][dst_id] = self.table[next_hop_id][4][dst_id][-self.lookback:]

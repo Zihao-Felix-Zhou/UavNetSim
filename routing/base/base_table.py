@@ -1,6 +1,9 @@
 from collections import defaultdict
 
 
+from routing.parameters import routing_interval_us
+
+
 class BaseTable:
     """
     Base class of the table (regardless of the neighbor or routing table)
@@ -25,7 +28,7 @@ class BaseTable:
         self.env = env
         self.my_drone = my_drone
         self.table = defaultdict(list)
-        self.entry_life_time = 2 * 1e6  # unit: us
+        self.entry_life_time = routing_interval_us("table_entry_lifetime_s", 2.0)
 
     def is_empty(self):
         """Determine if the table is empty"""

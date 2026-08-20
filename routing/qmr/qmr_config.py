@@ -1,4 +1,4 @@
-from phy.large_scale_fading import maximum_communication_range
+from utils.radio import routing_neighbor_distance
 
 hello_interval = 0.2 * 1e6
 hello_interval_count = 10
@@ -10,7 +10,7 @@ max_mac_delay_recorder_len = 100
 max_queue_delay_recorder_len = 100
 max_delay_list_len = 100
 
-communication_range = maximum_communication_range()
+communication_range = routing_neighbor_distance()
 
 max_reward = 100
 min_reward = -5

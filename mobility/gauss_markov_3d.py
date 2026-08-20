@@ -61,10 +61,11 @@ class GaussMarkov3D:
 
         self.my_drone.simulator.env.process(self.mobility_update(self.my_drone))
         self.trajectory = []
-        self.my_drone.simulator.env.process(self.show_trajectory())
 
     def mobility_update(self, drone):
         while True:
+            if drone.sleep:
+                break
             env = drone.simulator.env
             drone_id = drone.identifier
             cur_position = drone.coords
@@ -92,8 +93,8 @@ class GaussMarkov3D:
                 alpha2 = 1.0 - self.alpha
                 alpha3 = math.sqrt(1.0 - self.alpha * self.alpha)
 
-                next_speed = (self.alpha * cur_speed + alpha2 * velocity_mean +
-                              alpha3 * self.rng_mobility.normalvariate(0, 1))
+                next_speed = max(0.0, self.alpha * cur_speed + alpha2 * velocity_mean +
+                                 alpha3 * self.rng_mobility.normalvariate(0, 1))
 
                 next_direction = (self.alpha * cur_direction + alpha2 * direction_mean +
                                   alpha3 * self.rng_mobility.normalvariate(0, 1))
@@ -124,17 +125,23 @@ class GaussMarkov3D:
             next_position, next_velocity, next_direction, next_pitch, direction_mean, pitch_mean = \
                 self.boundary_test(next_position, next_velocity, direction_mean, pitch_mean)
 
-            drone.coords = next_position
+            collision = drone.move_to(next_position, next_velocity)
+            next_velocity = drone.velocity
+            if collision is not None:
+                next_direction = math.atan2(next_velocity[1], next_velocity[0])
+                next_pitch = math.atan2(next_velocity[2], math.hypot(next_velocity[0], next_velocity[1]))
+                direction_mean = next_direction
+                pitch_mean = next_pitch
             drone.direction = next_direction
             drone.pitch = next_pitch
-            drone.velocity = next_velocity
+            drone.speed = next_speed
             drone.velocity_mean = velocity_mean
             drone.direction_mean = direction_mean
             drone.pitch_mean = pitch_mean
 
             yield env.timeout(self.position_update_interval)
             energy_consumption = (self.position_update_interval / 1e6) * drone.energy_model.power_consumption(drone.speed)
-            drone.residual_energy -= energy_consumption
+            drone.residual_energy = max(0.0, drone.residual_energy - energy_consumption)
 
     def show_trajectory(self):
         x = []

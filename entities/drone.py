@@ -1,4 +1,4 @@
-import simpy
+﻿import simpy
 import numpy as np
 import random
 import math
@@ -6,13 +6,24 @@ import queue
 from simulator.log import logger
 from entities.packet import DataPacket
 from routing.dsdv.dsdv import Dsdv
+from routing.drl_routing.baseline_drl.baseline_drl import BaselineDrl
+from routing.greedy.greedy import Greedy
+from routing.grad.grad import Grad
+from routing.opar.opar import Opar
+from routing.q_routing.q_routing import QRouting
+from routing.qfanet.qfanet import QFanet
+from routing.qgeo.qgeo import QGeo
+from routing.qmr.qmr import QMR
 from mac.csma_ca import CsmaCa
+from mac.pure_aloha import PureAloha
+from mac.tdma import Tdma
 from mobility.gauss_markov_3d import GaussMarkov3D
+from mobility.random_walk_3d import RandomWalk3D
+from mobility.random_waypoint_3d import RandomWaypoint3D
+from mobility.trajectory import TraceMobility3D
 from energy.energy_model import EnergyModel
 from allocation.channel_assignment import ChannelAssigner
 from utils import config
-from utils.util_function import has_intersection
-from phy.large_scale_fading import sinr_calculator
 
 
 class Drone:
@@ -74,8 +85,8 @@ class Drone:
         self.simulator = simulator
         self.env = env
         self.identifier = node_id
-        self.coords = coords
-        self.start_coords = coords
+        self._coords = [float(value) for value in coords]
+        self.start_coords = tuple(self._coords)
 
         self.rng_drone = random.Random(self.identifier + self.simulator.seed)
 
@@ -97,15 +108,15 @@ class Drone:
         self.transmitting_queue = queue.Queue()  # queue in the real sense
         self.waiting_list = []
 
-        self.mac_protocol = CsmaCa(self)
+        self.mac_protocol = self._create_mac_protocol()
         self.mac_process_dict = dict()
         self.mac_process_finish = dict()
         self.mac_process_count = 0
         self.enable_blocking = 1  # enable "stop-and-wait" protocol
 
-        self.routing_protocol = Dsdv(self.simulator, self)
+        self.routing_protocol = self._create_routing_protocol()
 
-        self.mobility_model = GaussMarkov3D(self)
+        self.mobility_model = self._create_mobility_model()
         # self.motion_controller = VfMotionController(self)
 
         self.energy_model = EnergyModel(self)
@@ -118,34 +129,119 @@ class Drone:
         self.env.process(self.feed_packet())
         self.env.process(self.receive())
 
-    def generate_data_packet(self, traffic_pattern='Poisson'):
+    @property
+    def coords(self):
+        return self._coords
+
+    @coords.setter
+    def coords(self, position):
+        if not self.simulator.airspace.path_is_free(self._coords, position):
+            raise ValueError(f"UAV {self.identifier} attempted to enter blocked airspace")
+        self._coords = [float(value) for value in position]
+
+    def move_to(self, position, velocity):
+        resolved_position, resolved_velocity, collision = self.simulator.airspace.resolve_motion(
+            self._coords,
+            position,
+            velocity,
+        )
+        self._coords = resolved_position
+        self.velocity = resolved_velocity
+        if collision is not None:
+            self.simulator.event_bus.publish(
+                "uav_building_collision",
+                self.env.now,
+                node=self.identifier,
+                building=collision.building_id,
+                surface=collision.kind,
+                position=list(self._coords),
+            )
+        return collision
+
+    def _create_mac_protocol(self):
+        protocol_map = {
+            "CSMA_CA": CsmaCa,
+            "ALOHA": PureAloha,
+            "PURE_ALOHA": PureAloha,
+            "TDMA": Tdma,
+        }
+        mode = config.MAC_PROTOCOL.replace("-", "_").upper()
+        try:
+            return protocol_map[mode](self)
+        except KeyError as error:
+            raise ValueError(f"Unsupported MAC protocol: {config.MAC_PROTOCOL}") from error
+
+    def _create_mobility_model(self):
+        if self.simulator.trajectory_trace is not None:
+            return TraceMobility3D(self, self.simulator.trajectory_trace)
+        model_map = {
+            "GAUSSMARKOV3D": GaussMarkov3D,
+            "GAUSS_MARKOV_3D": GaussMarkov3D,
+            "RANDOMWALK3D": RandomWalk3D,
+            "RANDOM_WALK_3D": RandomWalk3D,
+            "RANDOMWAYPOINT3D": RandomWaypoint3D,
+            "RANDOM_WAYPOINT_3D": RandomWaypoint3D,
+        }
+        mode = config.MOBILITY_MODEL.replace("-", "_").upper()
+        try:
+            return model_map[mode](self)
+        except KeyError as error:
+            raise ValueError(f"Unsupported mobility model: {config.MOBILITY_MODEL}") from error
+
+    def _create_routing_protocol(self):
+        routing_mode = getattr(config, "ROUTING_PROTOCOL", "QMR")
+        normalized_mode = routing_mode.replace("-", "_").upper()
+        protocol_map = {
+            "DSDV": Dsdv,
+            "GREEDY": Greedy,
+            "GRAD": Grad,
+            "QROUTING": QRouting,
+            "Q_ROUTING": QRouting,
+            "QFANET": QFanet,
+            "QGEO": QGeo,
+            "QMR": QMR,
+            "OPAR": Opar,
+            "BASELINE_DRL": BaselineDrl,
+            "DRL": BaselineDrl,
+            "RL": BaselineDrl,
+        }
+
+        drl_protocol_cls = getattr(config, "DRL_ROUTING_PROTOCOL_CLASS", None)
+        if normalized_mode in {"BASELINE_DRL", "DRL", "RL"} and drl_protocol_cls is not None:
+            return drl_protocol_cls(self.simulator, self)
+
+        protocol_cls = protocol_map.get(normalized_mode)
+        if protocol_cls is None:
+            protocol_cls = drl_protocol_cls
+        if protocol_cls is None:
+            supported = ", ".join(sorted(protocol_map))
+            raise ValueError(f"Unsupported routing protocol '{routing_mode}'. Available: {supported}")
+        return protocol_cls(self.simulator, self)
+
+    def generate_data_packet(self):
         """
         Generate one data packet, it should be noted that only when the current packet has been sent can the next
         packet be started. When the drone generates a data packet, it will first put it into the "transmitting_queue",
         the drone reads a data packet from the head of the queue every very short time through "feed_packet()" function.
 
-        Parameters:
-            traffic_pattern: characterize the time interval between generating data packets
         """
 
+        traffic_pattern = config.TRAFFIC_PATTERN.upper()
+        arrival_rate = float(config.PACKET_ARRIVAL_RATE)
         while True:
             if not self.sleep:
-                if traffic_pattern == 'Uniform':
-                    # the drone generates a data packet every 0.5s with jitter
-                    yield self.env.timeout(self.rng_drone.randint(500000, 505000))
-                elif traffic_pattern == 'Poisson':
-                    """
-                    The process of generating data packets by nodes follows Poisson distribution, thus the generation 
-                    interval of data packets follows exponential distribution
-                    """
-
-                    rate = 5  # on average, how many packets are generated in 1s
-                    yield self.env.timeout(round(self.rng_drone.expovariate(rate) * 1e6))
+                if traffic_pattern == "UNIFORM":
+                    interval_us = 1e6 / arrival_rate
+                elif traffic_pattern == "POISSON":
+                    interval_us = self.rng_drone.expovariate(arrival_rate) * 1e6
+                else:
+                    raise ValueError(f"Unsupported traffic pattern: {config.TRAFFIC_PATTERN}")
+                yield self.env.timeout(max(1, round(interval_us)))
 
                 config.GL_ID_DATA_PACKET += 1  # data packet id
 
                 # randomly choose a destination
-                all_candidate_list = [i for i in range(config.NUMBER_OF_DRONES)]
+                all_candidate_list = [i for i in range(self.simulator.n_drones)]
                 all_candidate_list.remove(self.identifier)
                 dst_id = self.rng_drone.choice(all_candidate_list)
                 destination = self.simulator.drones[dst_id]  # obtain the destination drone
@@ -172,7 +268,7 @@ class Drone:
                                  channel_id=channel_id)
                 pkd.transmission_mode = 0  # the default transmission mode of data packet is "unicast" (0)
 
-                self.simulator.metrics.datapacket_generated_num += 1
+                self.simulator.metrics.record_generated(pkd)
 
                 logger.info('At time: %s (us) ++++ UAV: %s generates a data packet (id: %s, dst: %s)',
                             self.env.now, self.identifier, pkd.packet_id, destination.identifier)
@@ -182,8 +278,13 @@ class Drone:
                 if self.transmitting_queue.qsize() < self.max_queue_size:
                     self.transmitting_queue.put(pkd)
                 else:
-                    # the drone has no more room for new packets
-                    pass
+                    self.simulator.event_bus.publish(
+                        "packet_dropped",
+                        self.env.now,
+                        packet_id=pkd.packet_id,
+                        node=self.identifier,
+                        reason="queue_full",
+                    )
             else:  # cannot generate packets if "my_drone" is in sleep state
                 break
 
@@ -255,7 +356,13 @@ class Drone:
                             else:  # control packet but not ack
                                 yield self.env.process(self.packet_coming(packet))
                         else:
-                            pass  # means dropping this data packet for expiration
+                            self.simulator.event_bus.publish(
+                                "packet_dropped",
+                                self.env.now,
+                                packet_id=packet.packet_id,
+                                node=self.identifier,
+                                reason="deadline_expired",
+                            )
             else:  # this drone runs out of energy
                 break  # it is important to break the while loop
 
@@ -323,127 +430,34 @@ class Drone:
             self.transmitting_queue.put(temp_queue.get())
 
     def receive(self):
-        """
-        Core receiving function of drone
-        1. the drone checks its "inbox" to see if there is incoming packet every 5 units (in us) from the time it is
-           instantiated to the end of the simulation
-        2. update the "inbox" by deleting the inconsequential data packet
-        3. then the drone will detect if it receives a (or multiple) complete data packet(s)
-        4. SINR calculation
-        """
-
+        """Pass packets accepted by the physical layer to the routing protocol."""
         while True:
-            if not self.sleep:
-                # delete packets that have been processed and do not interfere with
-                # the transmission and reception of all current packets
-                self.update_inbox()
+            reception = yield self.inbox.get()
+            if self.sleep:
+                continue
+            packet = reception.packet
+            if packet.get_current_ttl() >= self.simulator.n_drones + 1:
+                self.simulator.event_bus.publish(
+                    "packet_dropped",
+                    self.env.now,
+                    packet_id=packet.packet_id,
+                    node=self.identifier,
+                    reason="ttl_exceeded",
+                )
+                continue
+            logger.info(
+                "At time: %s (us) ---- Packet %s from UAV: %s is received by UAV: %s, SINR is: %s dB",
+                self.env.now,
+                packet.packet_id,
+                reception.transmitter_id,
+                self.identifier,
+                reception.sinr_db,
+            )
+            yield self.env.process(
+                self.routing_protocol.packet_reception(packet, reception.transmitter_id)
+            )
 
-                flag, all_drones_send_to_me, time_span, potential_packet = self.trigger()
 
-                if flag:
-                    # find the transmitters of all packets currently transmitted on the channel
-                    transmitting_node_list = []
-                    for drone in self.simulator.drones:
-                        for item in drone.inbox:
-                            packet = item[0]
-                            insertion_time = item[1]
-                            transmitter = item[2]
-                            channel_used = item[4]
-                            transmitting_time = packet.packet_length / config.BIT_RATE * 1e6
-                            interval = [insertion_time, insertion_time + transmitting_time]
 
-                            for interval2 in time_span:
-                                if has_intersection(interval, interval2):
-                                    transmitting_node_list.append([transmitter, channel_used])
 
-                    # remove duplicates
-                    transmitting_node_list = [list(x) for x in {tuple(i) for i in transmitting_node_list}]
 
-                    sinr_list = sinr_calculator(self, all_drones_send_to_me, transmitting_node_list)
-
-                    # receive the packet of the transmitting node corresponding to the maximum SINR
-                    max_sinr = max(sinr_list)
-                    if max_sinr >= config.SNR_THRESHOLD:
-                        which_one = sinr_list.index(max_sinr)
-
-                        pkd = potential_packet[which_one]
-
-                        if pkd.get_current_ttl() < config.MAX_TTL:
-                            sender = all_drones_send_to_me[which_one][0]
-
-                            logger.info('At time: %s (us) ---- Packet %s from UAV: %s is received by UAV: %s, sinr is: %s',
-                                        self.env.now, pkd.packet_id, sender, self.identifier, max_sinr)
-
-                            yield self.env.process(self.routing_protocol.packet_reception(pkd, sender))
-                        else:
-                            logger.info('At time: %s (us) ---- Packet %s is dropped due to exceeding max TTL',
-                                        self.env.now, pkd.packet_id)
-                    else:  # sinr is lower than threshold
-                        pass
-
-                yield self.env.timeout(5)
-            else:
-                break
-
-    def update_inbox(self):
-        """
-        Clear the packets that have been processed.
-                                           ↓ (current time step)
-                              |==========|←- (current incoming packet p1)
-                       |==========|←- (packet p2 that has been processed, but also can affect p1, so reserve it)
-        |==========|←- (packet p3 that has been processed, no impact on p1, can be deleted)
-        --------------------------------------------------------> time
-        """
-
-        if config.VARIABLE_PAYLOAD_LENGTH:
-            max_transmission_time = ((config.AVERAGE_PAYLOAD_LENGTH + config.MAXIMUM_PAYLOAD_VARIATION)
-                                     / config.BIT_RATE) * 1e6  # for a single data packet
-        else:
-            max_transmission_time = (config.AVERAGE_PAYLOAD_LENGTH / config.BIT_RATE) * 1e6  # for a single data packet
-
-        for item in self.inbox:
-            insertion_time = item[1]  # the moment that this packet begins to be sent to the channel
-            received = item[3]  # used to indicate if this packet has been processed (1: processed, 0: unprocessed)
-            if insertion_time + 2 * max_transmission_time < self.env.now:  # no impact on the current packet
-                if received:
-                    self.inbox.remove(item)
-
-    def trigger(self):
-        """
-        Detects whether the drone has received a complete data packet
-
-        Returns:
-            flag: bool variable, "1" means a complete data packet has been received by this drone and vice versa
-            all_drones_send_to_me: a nested list, whose element is a list including sender id and the channel id
-            time_span: a nested list, whose element is a list including the time when the packet is transmitted and the
-                time when the packet reached
-            potential_packet: a list, including all the instances of the received complete data packet
-        """
-
-        flag = 0  # used to indicate if I receive a complete packet
-        all_drones_send_to_me = []
-        time_span = []
-        potential_packet = []
-
-        for item in self.inbox:
-            packet = item[0]  # not sure yet whether it has been completely transmitted
-            insertion_time = item[1]  # transmission start time
-            transmitter = item[2]
-            processed = item[3]  # indicate if this packet has been processed
-            channel_used = item[4]  # indicate the sub-channel that used to transmit this packet
-
-            transmitting_time = packet.packet_length / config.BIT_RATE * 1e6  # expected transmission time
-
-            if not processed:  # this packet has not been processed yet
-                if self.env.now >= insertion_time + transmitting_time:  # it has been transmitted completely
-                    flag = 1
-                    all_drones_send_to_me.append([transmitter, channel_used])
-                    time_span.append([insertion_time, insertion_time + transmitting_time])
-                    potential_packet.append(packet)
-                    item[3] = 1
-                else:
-                    pass
-            else:
-                pass
-
-        return flag, all_drones_send_to_me, time_span, potential_packet

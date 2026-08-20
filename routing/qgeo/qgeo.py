@@ -6,9 +6,10 @@ from entities.packet import DataPacket
 from topology.virtual_force.vf_packet import VfPacket
 from routing.qgeo.qgeo_packet import QGeoHelloPacket, QGeoAckPacket
 from routing.qgeo.qgeo_table import QGeoTable
+from routing.parameters import routing_interval_us, routing_parameter
 from utils import config
 from utils import util_function
-from phy.large_scale_fading import maximum_communication_range
+from utils.radio import routing_neighbor_distance
 
 
 class QGeo:
@@ -39,10 +40,10 @@ class QGeo:
         self.simulator = simulator
         self.my_drone = my_drone
         self.rng_routing = random.Random(self.my_drone.identifier + self.my_drone.simulator.seed + 10)
-        self.hello_interval = 0.5 * 1e6  # broadcast hello packet periodically
+        self.hello_interval = routing_interval_us("hello_interval_s", 0.5)
         self.check_interval = 0.6 * 1e6
-        self.learning_rate = 0.6  # fixed learning rate
-        self.r_max = 10
+        self.learning_rate = routing_parameter("learning_rate", 0.6)
+        self.r_max = routing_parameter("maximum_reward", 10)
         self.r_min = -self.r_max
         self.table = QGeoTable(self.simulator.env, my_drone,self.rng_routing)
         self.simulator.env.process(self.broadcast_hello_packet_periodically())
@@ -156,7 +157,6 @@ class QGeo:
                     ack_packet.increase_ttl()
                     self.my_drone.mac_protocol.phy.unicast(ack_packet, src_drone_id)
                     yield self.simulator.env.timeout(ack_packet.packet_length / config.BIT_RATE * 1e6)
-                    self.simulator.drones[src_drone_id].receive()
                 else:
                     pass
             else:
@@ -176,7 +176,7 @@ class QGeo:
                                                                         packet_copy.dst_drone.coords)
                         distance2 = util_function.euclidean_distance_3d(self.my_drone.coords,
                                                                         packet_copy.dst_drone.coords)
-                        reward = (distance1 - distance2) / maximum_communication_range()
+                        reward = (distance1 - distance2) / routing_neighbor_distance()
                         max_q = self.table.get_max_q_value(packet_copy.dst_drone.identifier)
                     else:
                         reward = self.r_min
@@ -200,7 +200,6 @@ class QGeo:
                         ack_packet.increase_ttl()
                         self.my_drone.mac_protocol.phy.unicast(ack_packet, src_drone_id)
                         yield self.simulator.env.timeout(ack_packet.packet_length / config.BIT_RATE * 1e6)
-                        self.simulator.drones[src_drone_id].receive()
                     else:
                         pass
                 else:
@@ -270,7 +269,7 @@ class QGeo:
         future_pos_next_hop = next_hop_coords + [i * t for i in next_hop_velocity]
         future_distance = util_function.euclidean_distance_3d(future_pos_myself, future_pos_next_hop)
 
-        if future_distance < maximum_communication_range():
+        if future_distance < routing_neighbor_distance():
             gamma = 0.6
         else:
             gamma = 0.4

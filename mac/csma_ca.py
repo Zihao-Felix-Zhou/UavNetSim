@@ -3,7 +3,6 @@ import random
 from simulator.log import logger
 from phy.phy import Phy
 from utils import config
-from utils.util_function import check_channel_availability
 
 
 class CsmaCa:
@@ -76,7 +75,7 @@ class CsmaCa:
 
         while to_wait:
             # wait until the channel becomes idle
-            yield self.env.process(self.wait_idle_channel(self.my_drone, self.simulator.drones))
+            yield self.env.process(self.wait_idle_channel(pkd.channel_id))
 
             if pkd.number_retransmission_attempt[self.my_drone.identifier] == 1:
                 """
@@ -87,7 +86,7 @@ class CsmaCa:
                 pkd.first_attempt_time = self.env.now
 
             # start listen the channel at backoff stage
-            self.env.process(self.listen(self.channel_states, self.simulator.drones, pkd))
+            self.env.process(self.listen(pkd))
 
             logger.info('At time: %s (us) ---- UAV: %s should wait for %s to countdown its back-off counter',
                         self.env.now, self.my_drone.identifier, to_wait)
@@ -186,35 +185,18 @@ class CsmaCa:
             logger.info('At time: %s (us) ---- UAV: %s receives the ACK for data packet: %s',
                         self.env.now, self.my_drone.identifier, pkd.packet_id)
 
-    def wait_idle_channel(self, sender_drone, drones):
-        """
-        Wait until the channel becomes idle
-        :param sender_drone: the drone that is about to send packet
-        :param drones: a list, which contains all the drones in the simulation
-        :return: none
-        """
-
-        while not check_channel_availability(self.channel_states, sender_drone, drones):
+    def wait_idle_channel(self, channel_id):
+        while self.simulator.channel.is_busy_for(self.my_drone, channel_id):
             yield self.env.timeout(config.SLOT_DURATION)
 
-    def listen(self, channel_states, drones, pkd):
-        """
-        When the drone waits until the channel is idle, it starts its own timer to count down, in this time, the drone
-        needs to detect the state of the channel during this period, and if the channel is found to be busy again, the
-        countdown process should be interrupted
-        :param channel_states: a dictionary, indicates the use of the channel by different drones
-        :param drones: a list, contains all drones in the simulation
-        :param pkd: listen to the channel for which packet
-        :return: none
-        """
-
+    def listen(self, pkd):
         logger.info('At time: %s (us) ---- UAV: %s starts to listen the channel and perform back-off',
                      self.env.now, self.my_drone.identifier)
 
         key = ''.join(['mac_send', str(self.my_drone.identifier), '_', str(pkd.packet_id)])
 
         while self.my_drone.mac_process_finish[key] == 0:  # interrupt only if the process is not complete
-            if check_channel_availability(channel_states, self.my_drone, drones) is False:
+            if self.simulator.channel.is_busy_for(self.my_drone, pkd.channel_id):
                 # found channel be occupied, start interrupt
 
                 key = ''.join(['mac_send',str(self.my_drone.identifier),'_',str(pkd.packet_id)])

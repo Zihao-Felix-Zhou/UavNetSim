@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "uavnetsim"
+version = "2.0.0"
+description = "Sionna RT powered UAV network simulator"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110",
+    "mapbox-earcut>=2.0",
+    "matplotlib>=3.10",
+    "numpy>=2.2",
+    "pydantic>=2.6",
+    "pyyaml>=6.0",
+    "shapely>=2.0",
+    "simpy>=4.1",
+    "sionna-rt==2.0.1",
+    "scikit-opt>=0.6.6",
+    "trimesh>=4.12",
+    "uvicorn[standard]>=0.29",
+]
+
+[project.optional-dependencies]
+drl = [
+    "gymnasium>=1.2",
+    "pandas>=2.2",
+    "stable-baselines3>=2.7",
+]
+test = ["pytest>=8.0"]
+
+[project.scripts]
+uavnetsim = "main:main"
+
+[tool.setuptools]
+py-modules = ["main"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+    "allocation*", "api*", "energy*", "entities*", "mac*", "mobility*",
+    "path_planning*", "phy*", "routing*", "scene*", "simulator*",
+    "telemetry*", "topology*", "utils*",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

@@ -158,7 +158,7 @@ class VfMotionController:
 
                 self.next_position = self.get_next_position()
 
-            drone.coords = next_pos
+            drone.move_to(next_pos, drone.velocity)
             yield env.timeout(self.position_update_interval)
 
             # User can choose if energy consumption is considered in their project

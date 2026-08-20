@@ -1,6 +1,2 @@
-matplotlib==3.10.1
-numpy==2.2.4
-openpyxl==3.1.5
-Pillow==11.2.1
-scikit_opt==0.6.6
-simpy==4.1.1
+-e .
+

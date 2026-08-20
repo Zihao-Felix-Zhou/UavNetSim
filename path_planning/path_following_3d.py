@@ -27,6 +27,7 @@ class PathFollowing3D:
 
     def __init__(self, drone, path):
         self.my_drone = drone
+        self.my_drone.simulator.airspace.validate_path(path)
         self.waypoint_coords = path[1:]  # remove the first waypoint, which is the starting pos
         self.position_update_interval = 1 * 1e5  # 0.1s
         self.pause_time = 0  # no pause
@@ -71,14 +72,14 @@ class PathFollowing3D:
 
             next_position = [next_position_x, next_position_y, next_position_z]
 
-            self.trajectory.append(next_position)
+            drone.move_to(next_position, drone.velocity)
+            self.trajectory.append(list(drone.coords))
 
             # judge if the drone has reach the target waypoint
-            if euclidean_distance_3d(next_position, target_waypoint) < self.arrival_flag:
+            if euclidean_distance_3d(drone.coords, target_waypoint) < self.arrival_flag:
                 self.waypoint_visited[target_waypoint_idx] = 1
                 yield env.timeout(self.pause_time)
 
-            drone.coords = next_position
             yield env.timeout(self.position_update_interval)
             energy_consumption = (self.position_update_interval / 1e6) * drone.energy_model.power_consumption(drone.speed)
             drone.residual_energy -= energy_consumption

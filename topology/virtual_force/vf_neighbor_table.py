@@ -3,7 +3,6 @@ import numpy as np
 from collections import defaultdict
 from utils import config
 from utils.util_function import euclidean_distance_3d
-from phy.large_scale_fading import maximum_communication_range
 
 
 class VfNeighborTable:
