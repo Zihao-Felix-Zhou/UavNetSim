@@ -12,6 +12,7 @@ dependencies = [
     "mapbox-earcut>=2.0",
     "matplotlib>=3.10",
     "numpy>=2.2",
+    "pillow>=10.0",
     "pydantic>=2.6",
     "pyyaml>=6.0",
     "shapely>=2.0",

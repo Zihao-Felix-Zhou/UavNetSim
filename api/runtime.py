@@ -117,6 +117,7 @@ class SimulationRuntime:
                 )
                 config.MAP_LENGTH = airspace.size_x
                 config.MAP_WIDTH = airspace.size_y
+                config.MAP_HEIGHT = airspace.max_height
                 trajectory_trace = generate_trajectory(
                     seed=self.settings.seed,
                     node_count=self.settings.node_count,

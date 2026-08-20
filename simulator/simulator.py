@@ -45,6 +45,7 @@ class Simulator:
         )
         config.MAP_LENGTH = self.airspace.size_x
         config.MAP_WIDTH = self.airspace.size_y
+        config.MAP_HEIGHT = self.airspace.max_height
         self.channel_states = {i: simpy.Resource(env, capacity=1) for i in range(n_drones)}
         self.channel = Channel(self.env, self, channel_trace)
 

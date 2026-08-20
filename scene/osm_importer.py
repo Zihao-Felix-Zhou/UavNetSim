@@ -20,6 +20,21 @@ MATERIALS = {
     "steel": "itu_metal",
     "wood": "itu_wood",
 }
+TERRAIN_TAGS = {
+    ("natural", "grassland"),
+    ("natural", "heath"),
+    ("landuse", "grass"),
+    ("landuse", "meadow"),
+    ("landuse", "recreation_ground"),
+    ("leisure", "garden"),
+    ("leisure", "park"),
+}
+WATER_TAGS = {
+    ("natural", "water"),
+    ("landuse", "basin"),
+    ("landuse", "reservoir"),
+    ("waterway", "riverbank"),
+}
 
 
 def _height(tags):
@@ -48,6 +63,22 @@ def _material(tags):
     return MATERIALS.get(raw, "itu_concrete")
 
 
+def _tagged(tags, choices):
+    return any(tags.get(key) == value for key, value in choices)
+
+
+def _feature_kind(tags):
+    if tags.get("building"):
+        return "building", _material(tags), _height(tags)
+    if tags.get("highway"):
+        return "road", "itu_concrete", 0.0
+    if _tagged(tags, WATER_TAGS):
+        return "water", "itu_wet_ground", 0.0
+    if _tagged(tags, TERRAIN_TAGS):
+        return "terrain", "itu_medium_dry_ground", 0.0
+    return None
+
+
 def _query(bounds: GeoBounds):
     box = f"{bounds.south},{bounds.west},{bounds.north},{bounds.east}"
     return f"""[out:json][timeout:30];
@@ -55,6 +86,14 @@ def _query(bounds: GeoBounds):
   way[\"building\"]({box});
   relation[\"building\"]({box});
   way[\"highway\"]({box});
+  way[\"natural\"~\"^(grassland|heath|water)$\"]({box});
+  relation[\"natural\"~\"^(grassland|heath|water)$\"]({box});
+  way[\"landuse\"~\"^(grass|meadow|recreation_ground|basin|reservoir)$\"]({box});
+  relation[\"landuse\"~\"^(grass|meadow|recreation_ground|basin|reservoir)$\"]({box});
+  way[\"leisure\"~\"^(garden|park)$\"]({box});
+  relation[\"leisure\"~\"^(garden|park)$\"]({box});
+  way[\"waterway\"=\"riverbank\"]({box});
+  relation[\"waterway\"=\"riverbank\"]({box});
 );
 out body;
 >;
@@ -88,10 +127,12 @@ def _join_outer_ways(paths):
     return rings
 
 
-def fetch_osm_scene(bounds: GeoBounds, name="OSM Scene"):
+def fetch_osm_scene(bounds: GeoBounds, name="OSM Scene", progress=None):
+    progress = progress or (lambda _value, _stage: None)
     request_data = urllib.parse.urlencode({"data": _query(bounds)}).encode()
     failures = []
-    for endpoint in OVERPASS_URLS:
+    for index, endpoint in enumerate(OVERPASS_URLS):
+        progress(0.05 + index * 0.05, "Downloading OpenStreetMap data")
         request = urllib.request.Request(
             endpoint,
             data=request_data,
@@ -105,7 +146,8 @@ def fetch_osm_scene(bounds: GeoBounds, name="OSM Scene"):
         try:
             with urllib.request.urlopen(request, timeout=45) as response:
                 payload = json.loads(response.read().decode("utf-8"))
-            return parse_osm_scene(payload, bounds, name)
+            progress(0.55, "Parsing buildings and land cover")
+            return parse_osm_scene(payload, bounds, name, progress)
         except urllib.error.HTTPError as error:
             if error.code not in RETRYABLE_HTTP_ERRORS:
                 raise RuntimeError(f"Overpass API rejected the request with HTTP {error.code}") from error
@@ -120,7 +162,8 @@ def fetch_osm_scene(bounds: GeoBounds, name="OSM Scene"):
     )
 
 
-def parse_osm_scene(payload, bounds: GeoBounds, name="OSM Scene"):
+def parse_osm_scene(payload, bounds: GeoBounds, name="OSM Scene", progress=None):
+    progress = progress or (lambda _value, _stage: None)
     anchor = GeoAnchor(latitude=bounds.south, longitude=bounds.west)
     elements = payload.get("elements", [])
     nodes = {
@@ -137,37 +180,40 @@ def parse_osm_scene(payload, bounds: GeoBounds, name="OSM Scene"):
     relation_way_ids = {
         member["ref"]
         for element in elements
-        if element.get("type") == "relation" and element.get("tags", {}).get("building")
+        if element.get("type") == "relation" and _feature_kind(element.get("tags", {}))
         for member in element.get("members", [])
         if member.get("type") == "way" and member.get("role") in {"", "outer"}
     }
-    for element in elements:
+    for element_index, element in enumerate(elements):
+        if element_index % max(1, len(elements) // 20) == 0:
+            progress(0.55 + 0.35 * element_index / max(1, len(elements)), "Parsing buildings and land cover")
         if element.get("type") != "way" or not element.get("tags"):
             continue
         tags = element["tags"]
+        kind = _feature_kind(tags)
+        if not kind or element["id"] in relation_way_ids:
+            continue
+        category, material, height = kind
         node_ids = ways[element["id"]]
         points = [lat_lon_to_enu(*nodes[node_id], anchor) for node_id in node_ids if node_id in nodes]
-        if tags.get("building") and element["id"] not in relation_way_ids and len(points) >= 3:
+        minimum_points = 2 if category == "road" else 3
+        if len(points) >= minimum_points:
             features.append(SceneFeature(
-                id=f"osm-building-{element['id']}",
-                category="building",
+                id=f"osm-{category}-{element['id']}",
+                category=category,
                 footprint=points,
-                height=_height(tags),
-                material=_material(tags),
-                source="openstreetmap",
-            ))
-        elif tags.get("highway") and len(points) >= 2:
-            features.append(SceneFeature(
-                id=f"osm-road-{element['id']}",
-                category="road",
-                footprint=points,
-                material="itu_concrete",
+                height=height,
+                material=material,
                 source="openstreetmap",
             ))
     for relation in elements:
-        if relation.get("type") != "relation" or not relation.get("tags", {}).get("building"):
+        if relation.get("type") != "relation":
             continue
-        tags = relation["tags"]
+        tags = relation.get("tags", {})
+        kind = _feature_kind(tags)
+        if not kind or kind[0] == "road":
+            continue
+        category, material, height = kind
         outer_paths = [
             ways.get(member["ref"], [])
             for member in relation.get("members", [])
@@ -177,13 +223,14 @@ def parse_osm_scene(payload, bounds: GeoBounds, name="OSM Scene"):
             points = [lat_lon_to_enu(*nodes[node_id], anchor) for node_id in ring if node_id in nodes]
             if len(points) >= 3:
                 features.append(SceneFeature(
-                    id=f"osm-relation-{relation['id']}-{index}",
-                    category="building",
+                    id=f"osm-{category}-relation-{relation['id']}-{index}",
+                    category=category,
                     footprint=points,
-                    height=_height(tags),
-                    material=_material(tags),
+                    height=height,
+                    material=material,
                     source="openstreetmap",
                 ))
+    progress(0.95, "Finalizing geospatial model")
     northeast = lat_lon_to_enu(bounds.north, bounds.east, anchor)
     return SceneModel(
         name=name,

@@ -1,8 +1,10 @@
 import asyncio
 from pathlib import Path
+from threading import Lock
 from typing import Literal
+from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -13,6 +15,7 @@ from routing.parameters import ROUTING_PARAMETER_DEFINITIONS, resolve_routing_pa
 from scene.compiler import compile_scene
 from scene.models import GeoBounds, SceneModel
 from scene.osm_importer import fetch_osm_scene
+from scene.terrain import attach_terrain
 from utils import config
 
 
@@ -48,6 +51,15 @@ class OsmImportRequest(BaseModel):
     bounds: GeoBounds
 
 
+class SceneBuildState(BaseModel):
+    id: str
+    status: Literal["queued", "running", "completed", "failed"] = "queued"
+    progress: int = Field(default=0, ge=0, le=100)
+    stage: str = "Queued"
+    error: str | None = None
+    scene: SceneModel | None = None
+
+
 app = FastAPI(title="UavNetSim v2")
 app.add_middleware(
     CORSMiddleware,
@@ -55,15 +67,58 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+scene_builds: dict[str, SceneBuildState] = {}
+scene_build_lock = Lock()
 
 
-def _activate_scene(scene):
+def _activate_scene(scene, progress=None):
     output = config.PROJECT_ROOT / "artifacts" / "scene"
-    compile_scene(scene, output)
+    compile_scene(scene, output, progress)
     config.SIONNA_SCENE_PATH = str(output / "scene.xml")
     config.MAP_LENGTH = scene.size_x
     config.MAP_WIDTH = scene.size_y
+    terrain_height = max((point.z for point in scene.terrain.vertices), default=0.0) if scene.terrain else 0.0
+    config.MAP_HEIGHT = terrain_height + config.AIRSPACE_HEIGHT_ABOVE_TERRAIN
     return scene
+
+
+def _update_scene_build(build_id, **changes):
+    with scene_build_lock:
+        scene_builds[build_id] = scene_builds[build_id].model_copy(update=changes)
+
+
+def _scene_build_in_progress():
+    with scene_build_lock:
+        return any(build.status in {"queued", "running"} for build in scene_builds.values())
+
+
+def _run_scene_build(build_id, request):
+    try:
+        _update_scene_build(build_id, status="running", progress=2, stage="Starting scene build")
+
+        def import_progress(value, stage):
+            _update_scene_build(build_id, progress=5 + round(value * 25), stage=stage)
+
+        scene = fetch_osm_scene(request.bounds, request.name, import_progress)
+
+        def terrain_progress(value, stage):
+            _update_scene_build(build_id, progress=30 + round(value * 25), stage=stage)
+
+        scene = attach_terrain(scene, terrain_progress)
+
+        def compile_progress(value, stage):
+            _update_scene_build(build_id, progress=55 + round(value * 43), stage=stage)
+
+        _activate_scene(scene, compile_progress)
+        _update_scene_build(
+            build_id,
+            status="completed",
+            progress=100,
+            stage="Scene ready",
+            scene=scene,
+        )
+    except Exception as error:
+        _update_scene_build(build_id, status="failed", stage="Scene build failed", error=str(error))
 
 
 def _scene_path():
@@ -96,22 +151,37 @@ def get_scene():
 def import_scene(scene: SceneModel):
     if runtime.status in {"running", "paused", "starting", "preparing", "stopping"}:
         raise HTTPException(409, "Stop the simulation before changing the scene")
+    if _scene_build_in_progress():
+        raise HTTPException(409, "Wait for the current scene build to finish")
     return _activate_scene(scene)
 
 
-@app.post("/api/scene/osm", response_model=SceneModel)
-async def import_osm(request: OsmImportRequest):
+@app.post("/api/scene/osm", response_model=SceneBuildState, status_code=202)
+def import_osm(request: OsmImportRequest, background_tasks: BackgroundTasks):
     if runtime.status in {"running", "paused", "starting", "preparing", "stopping"}:
         raise HTTPException(409, "Stop the simulation before changing the scene")
-    try:
-        scene = await asyncio.to_thread(fetch_osm_scene, request.bounds, request.name)
-        return _activate_scene(scene)
-    except Exception as error:
-        raise HTTPException(502, str(error)) from error
+    with scene_build_lock:
+        if any(build.status in {"queued", "running"} for build in scene_builds.values()):
+            raise HTTPException(409, "Another scene is already being built")
+        build = SceneBuildState(id=uuid4().hex)
+        scene_builds[build.id] = build
+    background_tasks.add_task(_run_scene_build, build.id, request)
+    return build
+
+
+@app.get("/api/scene/osm/{build_id}", response_model=SceneBuildState)
+def scene_build_state(build_id: str):
+    with scene_build_lock:
+        build = scene_builds.get(build_id)
+    if build is None:
+        raise HTTPException(404, "Scene build not found")
+    return build
 
 
 @app.post("/api/simulation/start")
 def start_simulation(request: StartRequest):
+    if _scene_build_in_progress():
+        raise HTTPException(409, "Wait for the current scene build to finish")
     try:
         settings = request.model_dump()
         settings["routing_parameters"] = resolve_routing_parameters(

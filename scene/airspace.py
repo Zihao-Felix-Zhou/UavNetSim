@@ -8,6 +8,7 @@ from shapely.strtree import STRtree
 from shapely.validation import make_valid
 
 from scene.models import SceneModel
+from scene.terrain import terrain_height
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,13 +26,16 @@ class BuildingVolume:
 
 
 class Airspace:
-    def __init__(self, scene, max_height, building_clearance=1.0, boundary_clearance=1.0):
+    def __init__(self, scene, max_height, building_clearance=1.0, boundary_clearance=1.0,
+                 height_above_terrain=120.0):
         self.scene = scene
         self.size_x = float(scene.size_x)
         self.size_y = float(scene.size_y)
-        self.max_height = float(max_height)
+        terrain_peak = max((point.z for point in scene.terrain.vertices), default=0.0) if scene.terrain else 0.0
+        self.max_height = max(float(max_height), terrain_peak + float(height_above_terrain))
         self.building_clearance = float(building_clearance)
         self.boundary_clearance = float(boundary_clearance)
+        self.terrain = scene.terrain
         self.buildings = self._building_volumes(scene)
         self._footprints = [building.footprint for building in self.buildings]
         self._tree = STRtree(self._footprints) if self._footprints else None
@@ -51,10 +55,11 @@ class Airspace:
             for part in polygons:
                 if part.geom_type != "Polygon" or part.area == 0:
                     continue
+                base_height = sum(point.z for point in feature.footprint) / len(feature.footprint)
                 volumes.append(BuildingVolume(
                     building_id=feature.id,
                     footprint=part.buffer(self.building_clearance, join_style="mitre"),
-                    top=float(feature.height) + self.building_clearance,
+                    top=float(feature.height) + base_height + self.building_clearance,
                 ))
         return volumes
 
@@ -72,13 +77,16 @@ class Airspace:
                 return building.building_id
         return None
 
+    def ground_height(self, x, y):
+        return terrain_height(self.terrain, float(x), float(y), self.size_x, self.size_y)
+
     def position_is_free(self, position):
         x, y, z = (float(value) for value in position)
         margin = self.boundary_clearance
         inside_bounds = (
             margin <= x <= self.size_x - margin
             and margin <= y <= self.size_y - margin
-            and margin <= z <= self.max_height - margin
+            and self.ground_height(x, y) + margin <= z <= self.max_height - margin
         )
         return inside_bounds and self.building_at(position) is None
 
@@ -117,7 +125,7 @@ class Airspace:
         end_xy = Point(end[0], end[1])
         line_length = start_xy.distance(end_xy)
         geometry = LineString([start_xy, end_xy]) if line_length > 1e-9 else start_xy
-        earliest = None
+        earliest = self._terrain_collision(start, end)
         for index in self._candidate_indices(geometry):
             building = self.buildings[int(index)]
             if line_length <= 1e-9:
@@ -134,6 +142,21 @@ class Airspace:
                 if earliest is None or collision.path_fraction < earliest.path_fraction:
                     earliest = collision
         return earliest
+
+    def _terrain_collision(self, start, end):
+        if self.terrain is None:
+            return None
+        horizontal_distance = math.dist(start[:2], end[:2])
+        step_length = max(1.0, self.terrain.resolution_m / 2.0)
+        steps = max(1, math.ceil(horizontal_distance / step_length))
+        for step in range(1, steps + 1):
+            fraction = step / steps
+            x = start[0] + (end[0] - start[0]) * fraction
+            y = start[1] + (end[1] - start[1]) * fraction
+            z = start[2] + (end[2] - start[2]) * fraction
+            if z <= self.ground_height(x, y) + self.boundary_clearance:
+                return BuildingCollision("terrain", "terrain", fraction)
+        return None
 
     def path_is_free(self, start, end):
         return self.position_is_free(end) and self.path_collision(start, end) is None
@@ -154,7 +177,7 @@ class Airspace:
         collision = self.path_collision(start, resolved_end)
         if collision is None:
             return resolved_end, reflected, None
-        if collision.kind == "roof":
+        if collision.kind == "roof" or (collision.kind == "terrain" and reflected[2] < 0):
             reflected[2] = -reflected[2]
         else:
             reflected[0] = -reflected[0]
@@ -165,10 +188,16 @@ class Airspace:
                              minimum_distance=0.0, attempts=10000):
         margin = self.boundary_clearance
         for _ in range(attempts):
+            x = rng.uniform(margin, self.size_x - margin)
+            y = rng.uniform(margin, self.size_y - margin)
+            minimum_z = self.ground_height(x, y) + margin
+            maximum_z = self.max_height - margin
+            if minimum_z > maximum_z:
+                continue
             position = [
-                rng.uniform(margin, self.size_x - margin),
-                rng.uniform(margin, self.size_y - margin),
-                rng.uniform(margin, self.max_height - margin),
+                x,
+                y,
+                rng.uniform(minimum_z, maximum_z),
             ]
             if not self.position_is_free(position):
                 continue
@@ -200,4 +229,4 @@ class Airspace:
         for start, end in zip(path, path[1:]):
             collision = self.path_collision(start, end)
             if collision is not None:
-                raise ValueError(f"Flight path intersects building {collision.building_id}")
+                raise ValueError(f"Flight path intersects {collision.building_id}")

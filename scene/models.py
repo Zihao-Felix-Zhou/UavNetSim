@@ -36,6 +36,16 @@ class SceneFeature(BaseModel):
     source: str = "user"
 
 
+class TerrainMesh(BaseModel):
+    rows: int = Field(ge=2)
+    columns: int = Field(ge=2)
+    vertices: list[EnuPoint]
+    faces: list[tuple[int, int, int]]
+    elevation_offset_m: float
+    resolution_m: float = Field(gt=0)
+    source: str
+
+
 class SceneModel(BaseModel):
     schema_version: int = 1
     name: str
@@ -44,4 +54,4 @@ class SceneModel(BaseModel):
     size_x: float = Field(gt=0)
     size_y: float = Field(gt=0)
     features: list[SceneFeature] = Field(default_factory=list)
-
+    terrain: TerrainMesh | None = None
