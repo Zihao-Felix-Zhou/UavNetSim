@@ -290,39 +290,6 @@ class Drone:
     ...
 ```
 
-### Visualization
-The platform supports interactive visualization of the packet transmission process, as well as the flying trajectories of drones. Here, I would like to thank @superboySB (Dr. Zipeng Dai) for contributing to this feature!
-
-<div align="center">
-<img src="https://github.com/Zihao-Felix-Zhou/UavNetSim-v1/blob/master/img/visualization.gif" width="900px">
-</div>
-
-One can enable visualization in ```main.py``` as:
-```python
-import simpy
-from utils import config
-from simulator.simulator import Simulator
-from visualization.visualizer import SimulationVisualizer
-
-if __name__ == "__main__":
-    # Simulation setup
-    env = simpy.Environment()
-    channel_states = {i: simpy.Resource(env, capacity=1) for i in range(config.NUMBER_OF_DRONES)}
-    sim = Simulator(seed=2025, env=env, channel_states=channel_states, n_drones=config.NUMBER_OF_DRONES)
-    
-    # Add the visualizer to the simulator
-    # Use 20000 microseconds (0.02s) as the visualization frame interval
-    visualizer = SimulationVisualizer(sim, output_dir=".", vis_frame_interval=20000)
-    visualizer.run_visualization()
-
-    # Run simulation
-    env.run(until=config.SIM_TIME)
-    
-    # Finalize visualization
-    visualizer.finalize()
-```
-In the current version of this project, when user run ```main.py```, the program will display a plot of the initial position distribution of the drones, then close the window and the program will keep running. When the simulation is over, the flight trajectory of one drone and the final locations of the drones will be displayed, close these windows and wait for a while, the interactive window will be displayed.
-
 ## Performance evaluation
 Our "UavNetSim-v1" platform supports the evaluation of several performance metrics, as follows:
 
@@ -361,6 +328,7 @@ Our simulation platform can be expanded based on your research needs, including 
 
 ## Contributing
 Contributions are warmly welcome! 
+Thank @superboySB (Dr. Zipeng Dai), @ddherm (Mr. Kai Fang) for their contributions!
 
 ## Citation
 If you find our paper useful, please kindly cite us via:
