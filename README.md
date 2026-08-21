@@ -35,12 +35,25 @@ This repository corresponds to our following paper. In addition, we have also up
 > <sup>5</sup> Yonsei Frontier Lab, Yonsei University
 
 ## Requirements
-- matplotlib==3.10.1
-- numpy==2.2.4
-- openpyxl==3.1.5
-- Pillow==11.2.1
-- scikit_opt==0.6.6
-- simpy==4.1.1
+To be updated...
+
+## Quick Start
+```
+cd "your project path"
+
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -e .
+
+.\.venv\Scripts\python.exe main.py compile-scene scenarios\default_scene.json --output artifacts\scene
+
+cd frontend
+npm ci
+npm run build
+cd ..
+
+.\.venv\Scripts\python.exe main.py serve --host 127.0.0.1 --port 8000
+```
 
 ## Features
 Before you start your simulation journey, we recommend that you read this section first, in which some features of this platform are mentioned so that you can decide if this platform meets your development or research needs.
