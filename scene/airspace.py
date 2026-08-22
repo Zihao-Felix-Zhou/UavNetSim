@@ -27,51 +27,88 @@ class BuildingVolume:
 
 class Airspace:
     def __init__(self, scene, max_height, building_clearance=1.0, boundary_clearance=1.0,
-                 height_above_terrain=120.0):
+                 height_above_terrain=120.0, min_flight_height=None, max_flight_height=None):
         self.scene = scene
         self.size_x = float(scene.size_x)
         self.size_y = float(scene.size_y)
         terrain_peak = max((point.z for point in scene.terrain.vertices), default=0.0) if scene.terrain else 0.0
-        self.max_height = max(float(max_height), terrain_peak + float(height_above_terrain))
+        self.max_height = max(
+            float(max_height),
+            terrain_peak + float(height_above_terrain),
+            float(max_flight_height) if max_flight_height is not None else 0.0,
+        )
         self.building_clearance = float(building_clearance)
         self.boundary_clearance = float(boundary_clearance)
+        self.min_flight_height = (
+            float(min_flight_height)
+            if min_flight_height is not None
+            else self.boundary_clearance
+        )
+        self.max_flight_height = (
+            float(max_flight_height)
+            if max_flight_height is not None
+            else self.max_height - self.boundary_clearance
+        )
+        if self.min_flight_height >= self.max_flight_height:
+            raise ValueError("Maximum UAV altitude must be greater than minimum UAV altitude")
         self.terrain = scene.terrain
-        self.buildings = self._building_volumes(scene)
+        self.buildings = self._building_volumes(scene, self.building_clearance)
         self._footprints = [building.footprint for building in self.buildings]
         self._tree = STRtree(self._footprints) if self._footprints else None
+        self.radio_buildings = self._building_volumes(
+            scene,
+            clearance=0.0,
+            match_compiled_mesh=True,
+        )
+        radio_footprints = [building.footprint for building in self.radio_buildings]
+        self._radio_tree = STRtree(radio_footprints) if radio_footprints else None
 
     @classmethod
-    def from_file(cls, scene_path, max_height, building_clearance=1.0, boundary_clearance=1.0):
+    def from_file(cls, scene_path, max_height, building_clearance=1.0, boundary_clearance=1.0,
+                  min_flight_height=None, max_flight_height=None):
         scene = SceneModel.model_validate_json(Path(scene_path).read_text(encoding="utf-8"))
-        return cls(scene, max_height, building_clearance, boundary_clearance)
+        return cls(
+            scene,
+            max_height,
+            building_clearance,
+            boundary_clearance,
+            min_flight_height=min_flight_height,
+            max_flight_height=max_flight_height,
+        )
 
-    def _building_volumes(self, scene):
+    @staticmethod
+    def _building_volumes(scene, clearance, match_compiled_mesh=False):
         volumes = []
         for feature in scene.features:
             if feature.category != "building":
                 continue
             polygon = make_valid(Polygon((point.x, point.y) for point in feature.footprint))
             polygons = polygon.geoms if polygon.geom_type == "MultiPolygon" else [polygon]
+            if match_compiled_mesh and polygon.geom_type == "MultiPolygon":
+                polygons = [max(polygons, key=lambda item: item.area)]
             for part in polygons:
                 if part.geom_type != "Polygon" or part.area == 0:
                     continue
                 base_height = sum(point.z for point in feature.footprint) / len(feature.footprint)
+                footprint = part.buffer(clearance, join_style="mitre") if clearance else part
+                height = max(float(feature.height), 1.0) if match_compiled_mesh else float(feature.height)
                 volumes.append(BuildingVolume(
                     building_id=feature.id,
-                    footprint=part.buffer(self.building_clearance, join_style="mitre"),
-                    top=float(feature.height) + base_height + self.building_clearance,
+                    footprint=footprint,
+                    top=height + base_height + clearance,
                 ))
         return volumes
 
-    def _candidate_indices(self, geometry):
-        if self._tree is None:
+    @staticmethod
+    def _candidate_indices(tree, geometry):
+        if tree is None:
             return []
-        return self._tree.query(geometry, predicate="intersects")
+        return tree.query(geometry, predicate="intersects")
 
     def building_at(self, position):
         point = Point(float(position[0]), float(position[1]))
         altitude = float(position[2])
-        for index in self._candidate_indices(point):
+        for index in self._candidate_indices(self._tree, point):
             building = self.buildings[int(index)]
             if altitude <= building.top and building.footprint.covers(point):
                 return building.building_id
@@ -86,7 +123,8 @@ class Airspace:
         inside_bounds = (
             margin <= x <= self.size_x - margin
             and margin <= y <= self.size_y - margin
-            and self.ground_height(x, y) + margin <= z <= self.max_height - margin
+            and max(self.ground_height(x, y) + margin, self.min_flight_height)
+            <= z <= self.max_flight_height
         )
         return inside_bounds and self.building_at(position) is None
 
@@ -118,16 +156,16 @@ class Airspace:
         roof_fraction = (building_top - start_z) / delta_z
         return max(interval_start, roof_fraction), "roof"
 
-    def path_collision(self, start, end):
+    def _path_collision(self, start, end, buildings, tree, terrain_clearance):
         start = [float(value) for value in start]
         end = [float(value) for value in end]
         start_xy = Point(start[0], start[1])
         end_xy = Point(end[0], end[1])
         line_length = start_xy.distance(end_xy)
         geometry = LineString([start_xy, end_xy]) if line_length > 1e-9 else start_xy
-        earliest = self._terrain_collision(start, end)
-        for index in self._candidate_indices(geometry):
-            building = self.buildings[int(index)]
+        earliest = self._terrain_collision(start, end, terrain_clearance)
+        for index in self._candidate_indices(tree, geometry):
+            building = buildings[int(index)]
             if line_length <= 1e-9:
                 intervals = [(0.0, 1.0)] if building.footprint.covers(start_xy) else []
             else:
@@ -143,7 +181,25 @@ class Airspace:
                     earliest = collision
         return earliest
 
-    def _terrain_collision(self, start, end):
+    def path_collision(self, start, end):
+        return self._path_collision(
+            start,
+            end,
+            self.buildings,
+            self._tree,
+            self.boundary_clearance,
+        )
+
+    def has_line_of_sight(self, start, end):
+        return self._path_collision(
+            start,
+            end,
+            self.radio_buildings,
+            self._radio_tree,
+            terrain_clearance=0.0,
+        ) is None
+
+    def _terrain_collision(self, start, end, clearance):
         if self.terrain is None:
             return None
         horizontal_distance = math.dist(start[:2], end[:2])
@@ -154,7 +210,7 @@ class Airspace:
             x = start[0] + (end[0] - start[0]) * fraction
             y = start[1] + (end[1] - start[1]) * fraction
             z = start[2] + (end[2] - start[2]) * fraction
-            if z <= self.ground_height(x, y) + self.boundary_clearance:
+            if z <= self.ground_height(x, y) + clearance:
                 return BuildingCollision("terrain", "terrain", fraction)
         return None
 
@@ -167,7 +223,7 @@ class Airspace:
         limits = (
             (self.boundary_clearance, self.size_x - self.boundary_clearance),
             (self.boundary_clearance, self.size_y - self.boundary_clearance),
-            (self.boundary_clearance, self.max_height - self.boundary_clearance),
+            (self.min_flight_height, self.max_flight_height),
         )
         for axis, (minimum, maximum) in enumerate(limits):
             clamped = max(minimum, min(resolved_end[axis], maximum))
@@ -190,8 +246,8 @@ class Airspace:
         for _ in range(attempts):
             x = rng.uniform(margin, self.size_x - margin)
             y = rng.uniform(margin, self.size_y - margin)
-            minimum_z = self.ground_height(x, y) + margin
-            maximum_z = self.max_height - margin
+            minimum_z = max(self.ground_height(x, y) + margin, self.min_flight_height)
+            maximum_z = self.max_flight_height
             if minimum_z > maximum_z:
                 continue
             position = [

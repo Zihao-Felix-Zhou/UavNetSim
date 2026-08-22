@@ -15,6 +15,22 @@ function clamp(value, minimum, maximum) {
   return Math.min(maximum, Math.max(minimum, value))
 }
 
+function sceneCoordinateBounds(scene) {
+  const zValues = [0]
+  scene.terrain?.vertices.forEach((point) => zValues.push(point.z))
+  scene.features.forEach((feature) => {
+    feature.footprint.forEach((point) => {
+      zValues.push(point.z)
+      if (feature.category === 'building') zValues.push(point.z + feature.height)
+    })
+  })
+  return {
+    x: [0, scene.size_x],
+    y: [0, scene.size_y],
+    z: [Math.min(...zValues), Math.max(...zValues)],
+  }
+}
+
 async function responseError(response) {
   const payload = await response.json().catch(() => null)
   return new Error(payload?.detail || `Request failed with HTTP ${response.status}`)
@@ -84,6 +100,7 @@ export default function App() {
   const [panelLayout, setPanelLayout] = useState(DEFAULT_LAYOUT)
   const [settings, setSettings] = useState({
     seed: 2025, node_count: 8, duration_seconds: 20, playback_speed: 1, uav_speed_mps: 10,
+    uav_min_altitude_m: null, uav_max_altitude_m: null,
     initial_energy_j: 20000, traffic_pattern: 'Poisson', packet_arrival_rate: 5,
     routing: 'Greedy', routing_parameter_values: {}, mac: 'CSMA_CA', mobility: 'GaussMarkov3D',
     channel_mode: 'online',
@@ -103,6 +120,16 @@ export default function App() {
       .catch((loadError) => setError(loadError.message))
     fetch('/api/simulation/state').then((response) => response.json()).then(setState)
   }, [])
+
+  useEffect(() => {
+    if (!scene) return
+    const terrainPeak = Math.max(0, ...(scene.terrain?.vertices || []).map((point) => point.z))
+    setSettings((current) => ({
+      ...current,
+      uav_min_altitude_m: 0,
+      uav_max_altitude_m: Math.ceil(terrainPeak + 120),
+    }))
+  }, [scene])
 
   useEffect(() => () => resizeCleanupRef.current?.(), [])
 
@@ -170,6 +197,14 @@ export default function App() {
   }
 
   async function startSimulation() {
+    if (
+      !Number.isFinite(settings.uav_min_altitude_m)
+      || !Number.isFinite(settings.uav_max_altitude_m)
+      || settings.uav_min_altitude_m >= settings.uav_max_altitude_m
+    ) {
+      setError('Maximum UAV altitude must be greater than minimum UAV altitude')
+      return
+    }
     setEvents([])
     setArcs([])
     setSelectedNode(null)
@@ -205,6 +240,7 @@ export default function App() {
   const latestLink = events.findLast((event) => event.event_type.startsWith('packet_rx_'))
   const buildings = scene?.features.filter((feature) => feature.category === 'building').length || 0
   const terrainRelief = scene?.terrain ? Math.max(0, ...scene.terrain.vertices.map((point) => point.z)) : 0
+  const coordinateBounds = scene ? sceneCoordinateBounds(scene) : null
   const settingsLocked = ACTIVE_STATUSES.includes(state.status)
   const routingParameterDefinitions = options.routing_parameters[settings.routing] || {}
   const setSetting = (key, value) => setSettings((current) => ({ ...current, [key]: value }))
@@ -285,12 +321,18 @@ export default function App() {
           <button className="scene-heading" onClick={() => setScenePicker(true)} title="Change scene">
             <span><small>ACTIVE SCENE</small><strong>{scene.name}</strong></span><MapPinned size={18} />
           </button>
-          <div className="scene-facts"><span>{scene.size_x.toFixed(0)} x {scene.size_y.toFixed(0)} m</span><span>{buildings} structures{scene.terrain ? ` / ${terrainRelief.toFixed(0)} m relief` : ''}</span></div>
+          <div className="scene-facts" title="Local ENU coordinate bounds">
+            {Object.entries(coordinateBounds).map(([axis, range]) => (
+              <span key={axis}><b>{axis.toUpperCase()}</b>{range[0].toFixed(0)}-{range[1].toFixed(0)} m</span>
+            ))}
+            <small>{buildings} structures{scene.terrain ? ` / ${terrainRelief.toFixed(0)} m relief` : ''}</small>
+          </div>
           <div className="layer-stack">
             <LayerSection index="01" title="SIMULATION / UAV" open={openLayers.simulation} disabled={settingsLocked} onToggle={() => toggleLayer('simulation')}>
               <div className="field-row"><Field label="Nodes"><input type="number" min="2" max="50" value={settings.node_count} onChange={(event) => setSetting('node_count', Number(event.target.value))} /></Field><Field label="Duration"><div className="input-unit"><input type="number" min="1" max="3600" value={settings.duration_seconds} onChange={(event) => setSetting('duration_seconds', Number(event.target.value))} /><span>s</span></div></Field></div>
               <Field label="Mobility model"><select value={settings.mobility} onChange={(event) => setSetting('mobility', event.target.value)}>{options.mobility.map((item) => <option key={item}>{item}</option>)}</select></Field>
               <div className="field-row"><Field label="UAV speed"><div className="input-unit"><input type="number" min="0.1" max="100" step="0.5" value={settings.uav_speed_mps} onChange={(event) => setSetting('uav_speed_mps', Number(event.target.value))} /><span>m/s</span></div></Field><Field label="Initial energy"><div className="input-unit"><input type="number" min="1" step="100" value={settings.initial_energy_j} onChange={(event) => setSetting('initial_energy_j', Number(event.target.value))} /><span>J</span></div></Field></div>
+              <div className="field-row"><Field label="Min altitude (Z)"><div className="input-unit"><input type="number" min="0" max="10000" step="1" value={settings.uav_min_altitude_m ?? ''} onChange={(event) => setSetting('uav_min_altitude_m', Number(event.target.value))} /><span>m</span></div></Field><Field label="Max altitude (Z)"><div className="input-unit"><input type="number" min="0.1" max="10000" step="1" value={settings.uav_max_altitude_m ?? ''} onChange={(event) => setSetting('uav_max_altitude_m', Number(event.target.value))} /><span>m</span></div></Field></div>
               <div className="field-row"><Field label="Random seed"><input type="number" value={settings.seed} onChange={(event) => setSetting('seed', Number(event.target.value))} /></Field><Field label="Playback"><div className="segmented">{[0.5, 1, 2, 5].map((speed) => <button type="button" key={speed} className={settings.playback_speed === speed ? 'active' : ''} onClick={() => setSetting('playback_speed', speed)}>{speed}x</button>)}</div></Field></div>
             </LayerSection>
 

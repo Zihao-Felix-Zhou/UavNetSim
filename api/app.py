@@ -8,7 +8,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, WebSocket, WebSocke
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from api.runtime import RunSettings, runtime
 from routing.parameters import ROUTING_PARAMETER_DEFINITIONS, resolve_routing_parameters
@@ -25,6 +25,8 @@ class StartRequest(BaseModel):
     duration_seconds: float = Field(default=20, gt=0, le=3600)
     playback_speed: float = Field(default=1, gt=0, le=100)
     uav_speed_mps: float = Field(default=10, gt=0, le=100)
+    uav_min_altitude_m: float | None = Field(default=None, ge=0, le=10000)
+    uav_max_altitude_m: float | None = Field(default=None, gt=0, le=10000)
     initial_energy_j: float = Field(default=20000, gt=0, le=1e9)
     traffic_pattern: str = Field(default="Poisson", pattern="^(Uniform|Poisson)$")
     packet_arrival_rate: float = Field(default=5, gt=0, le=1000)
@@ -44,6 +46,16 @@ class StartRequest(BaseModel):
     sionna_edge_diffraction: bool = False
     channel_snapshot_interval_ms: float = Field(default=100, gt=0, le=60000)
     channel_snapshot_displacement_m: float = Field(default=1, gt=0, le=1000)
+
+    @model_validator(mode="after")
+    def validate_altitude_range(self):
+        if (
+            self.uav_min_altitude_m is not None
+            and self.uav_max_altitude_m is not None
+            and self.uav_min_altitude_m >= self.uav_max_altitude_m
+        ):
+            raise ValueError("Maximum UAV altitude must be greater than minimum UAV altitude")
+        return self
 
 
 class OsmImportRequest(BaseModel):

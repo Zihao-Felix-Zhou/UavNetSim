@@ -42,6 +42,8 @@ class Simulator:
             max_height=config.MAP_HEIGHT,
             building_clearance=config.UAV_BUILDING_CLEARANCE,
             boundary_clearance=config.UAV_BOUNDARY_CLEARANCE,
+            min_flight_height=config.UAV_MIN_ALTITUDE,
+            max_flight_height=config.UAV_MAX_ALTITUDE,
         )
         config.MAP_LENGTH = self.airspace.size_x
         config.MAP_WIDTH = self.airspace.size_y
@@ -74,6 +76,10 @@ class Simulator:
             mac=config.MAC_PROTOCOL,
             mobility=config.MOBILITY_MODEL,
             uav_speed_mps=drone_speed,
+            uav_altitude_range_m=[
+                self.airspace.min_flight_height,
+                self.airspace.max_flight_height,
+            ],
             initial_energy_j=config.INITIAL_ENERGY,
             traffic_pattern=config.TRAFFIC_PATTERN,
             packet_arrival_rate=config.PACKET_ARRIVAL_RATE,

@@ -34,8 +34,8 @@ class RandomWaypoint3D:
         self.min_y = 0
         self.max_y = config.MAP_WIDTH
 
-        self.min_z = 0
-        self.max_z = config.MAP_HEIGHT
+        self.min_z = self.my_drone.simulator.airspace.min_flight_height
+        self.max_z = self.my_drone.simulator.airspace.max_flight_height
 
         # generate random waypoint
         self.waypoint_num = 5

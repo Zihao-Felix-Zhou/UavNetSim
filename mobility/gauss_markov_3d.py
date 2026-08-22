@@ -56,8 +56,8 @@ class GaussMarkov3D:
         self.min_y = 0
         self.max_y = config.MAP_WIDTH
 
-        self.min_z = 0
-        self.max_z = config.MAP_HEIGHT
+        self.min_z = self.my_drone.simulator.airspace.min_flight_height
+        self.max_z = self.my_drone.simulator.airspace.max_flight_height
 
         self.my_drone.simulator.env.process(self.mobility_update(self.my_drone))
         self.trajectory = []
@@ -178,13 +178,13 @@ class GaussMarkov3D:
         if next_position[1] < self.min_y + self.b2 or next_position[1] > self.max_y - self.b2:
             next_velocity[1] = -next_velocity[1]
             direction_mean = -direction_mean
-        if next_position[2] < self.min_z + self.b3 or next_position[2] > self.max_z - self.b3:
+        if next_position[2] < self.min_z or next_position[2] > self.max_z:
             next_velocity[2] = -next_velocity[2]
             pitch_mean = -pitch_mean
 
         next_position[0] = max(self.min_x + self.b1, min(next_position[0], self.max_x - self.b1))
         next_position[1] = max(self.min_y + self.b2, min(next_position[1], self.max_y - self.b2))
-        next_position[2] = max(self.min_z + self.b3, min(next_position[2], self.max_z - self.b3))
+        next_position[2] = max(self.min_z, min(next_position[2], self.max_z))
 
         next_direction = direction_mean
         next_pitch = pitch_mean

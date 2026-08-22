@@ -19,6 +19,8 @@ class RunSettings:
     duration_seconds: float
     playback_speed: float
     uav_speed_mps: float
+    uav_min_altitude_m: float | None
+    uav_max_altitude_m: float | None
     initial_energy_j: float
     traffic_pattern: str
     packet_arrival_rate: float
@@ -80,6 +82,8 @@ class SimulationRuntime:
             config.CHANNEL_MODE = self.settings.channel_mode
             config.NUMBER_OF_DRONES = self.settings.node_count
             config.UAV_SPEED = self.settings.uav_speed_mps
+            config.UAV_MIN_ALTITUDE = self.settings.uav_min_altitude_m
+            config.UAV_MAX_ALTITUDE = self.settings.uav_max_altitude_m
             config.INITIAL_ENERGY = self.settings.initial_energy_j
             config.TRAFFIC_PATTERN = self.settings.traffic_pattern
             config.PACKET_ARRIVAL_RATE = self.settings.packet_arrival_rate
@@ -114,6 +118,8 @@ class SimulationRuntime:
                     max_height=config.MAP_HEIGHT,
                     building_clearance=config.UAV_BUILDING_CLEARANCE,
                     boundary_clearance=config.UAV_BOUNDARY_CLEARANCE,
+                    min_flight_height=config.UAV_MIN_ALTITUDE,
+                    max_flight_height=config.UAV_MAX_ALTITUDE,
                 )
                 config.MAP_LENGTH = airspace.size_x
                 config.MAP_WIDTH = airspace.size_y
