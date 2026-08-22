@@ -5,7 +5,11 @@ from dataclasses import dataclass
 
 import simpy
 
-from phy.sionna_rt import OfflineSionnaRtChannelModel, OnlineSionnaRtChannelModel
+from phy.sionna_rt import (
+    HybridSionnaRtChannelModel,
+    OfflineSionnaRtChannelModel,
+    OnlineSionnaRtChannelModel,
+)
 from utils import config
 
 
@@ -42,6 +46,11 @@ class Channel:
             self.channel_model = OfflineSionnaRtChannelModel(simulator.event_bus, channel_trace)
         elif config.CHANNEL_MODE == "online":
             self.channel_model = OnlineSionnaRtChannelModel(simulator.event_bus)
+        elif config.CHANNEL_MODE == "hybrid":
+            self.channel_model = HybridSionnaRtChannelModel(
+                simulator.event_bus,
+                simulator.airspace,
+            )
         else:
             raise ValueError(f"Unsupported channel mode: {config.CHANNEL_MODE}")
 

@@ -56,11 +56,11 @@ function LayerSection({ index, title, open, disabled, onToggle, children }) {
   )
 }
 
-function Toggle({ label, checked, onChange }) {
+function Toggle({ label, checked, disabled = false, onChange }) {
   return (
-    <label className="toggle-field">
+    <label className={`toggle-field ${disabled ? 'disabled' : ''}`}>
       <span>{label}</span>
-      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} />
       <i aria-hidden="true" />
     </label>
   )
@@ -71,7 +71,11 @@ function formatEvent(event) {
   if (event.event_type === 'packet_tx_started') return `PKT ${data.packet_id}  UAV ${data.source} -> ${data.destinations.join(', ')}`
   if (event.event_type === 'packet_rx_succeeded') return `RX ${data.packet_id}  ${data.sinr_db.toFixed(1)} dB`
   if (event.event_type === 'packet_rx_failed') return `DROP ${data.packet_id}  ${data.sinr_db.toFixed(1)} dB`
-  if (event.event_type === 'channel_snapshot') return data.mode === 'offline' ? `TRACE snapshot  ${data.trace_index}` : `RT snapshot  ${data.solve_time_ms.toFixed(0)} ms`
+  if (event.event_type === 'channel_snapshot') {
+    if (data.mode === 'offline') return `TRACE snapshot  ${data.trace_index}`
+    if (data.mode === 'hybrid') return `HYBRID snapshot  ${data.los_link_count} LoS / ${data.nlos_link_count} NLoS  ${data.solve_time_ms.toFixed(0)} ms`
+    return `RT snapshot  ${data.solve_time_ms.toFixed(0)} ms`
+  }
   if (event.event_type === 'channel_trace_snapshot_ready') return `TRACE ${data.completed} / ${data.total}`
   if (event.event_type === 'channel_trace_ready') return data.cache_hit ? 'TRACE CACHE LOADED' : 'TRACE READY'
   if (event.event_type === 'packet_delivered') return `DELIVERED ${data.packet_id}  ${data.delay_ms.toFixed(1)} ms`
@@ -359,12 +363,12 @@ export default function App() {
             </LayerSection>
 
             <LayerSection index="05" title="PHYSICAL LAYER" open={openLayers.physical} disabled={settingsLocked} onToggle={() => toggleLayer('physical')}>
-              <Field label="Channel calculation"><div className="segmented two">{options.channel_mode.map((mode) => <button type="button" key={mode} className={settings.channel_mode === mode ? 'active' : ''} onClick={() => setSetting('channel_mode', mode)}>{mode}</button>)}</div></Field>
+              <Field label="Channel calculation"><div className="segmented three">{options.channel_mode.map((mode) => <button type="button" key={mode} className={settings.channel_mode === mode ? 'active' : ''} onClick={() => setSetting('channel_mode', mode)}>{mode}</button>)}</div></Field>
               <div className="field-row"><Field label="Max depth"><input type="number" min="0" max="32" value={settings.sionna_max_depth} onChange={(event) => setSetting('sionna_max_depth', Number(event.target.value))} /></Field><Field label="Samples / source"><input type="number" min="100" max="10000000" step="1000" value={settings.samples_per_source} onChange={(event) => setSetting('samples_per_source', Number(event.target.value))} /></Field></div>
               <div className="field-row"><Field label="Frequency samples"><input type="number" min="1" max="4096" value={settings.sionna_frequency_samples} onChange={(event) => setSetting('sionna_frequency_samples', Number(event.target.value))} /></Field><Field label="Snapshot interval"><div className="input-unit"><input type="number" min="0.1" max="60000" step="1" value={settings.channel_snapshot_interval_ms} onChange={(event) => setSetting('channel_snapshot_interval_ms', Number(event.target.value))} /><span>ms</span></div></Field></div>
               <Field label="Snapshot displacement"><div className="input-unit"><input type="number" min="0.01" max="1000" step="0.1" value={settings.channel_snapshot_displacement_m} onChange={(event) => setSetting('channel_snapshot_displacement_m', Number(event.target.value))} /><span>m</span></div></Field>
               <div className="toggle-grid">
-                <Toggle label="Line of sight" checked={settings.sionna_los} onChange={(value) => setSetting('sionna_los', value)} />
+                <Toggle label="Line of sight" checked={settings.channel_mode === 'hybrid' || settings.sionna_los} disabled={settings.channel_mode === 'hybrid'} onChange={(value) => setSetting('sionna_los', value)} />
                 <Toggle label="Specular reflection" checked={settings.sionna_specular_reflection} onChange={(value) => setSetting('sionna_specular_reflection', value)} />
                 <Toggle label="Diffuse reflection" checked={settings.sionna_diffuse_reflection} onChange={(value) => setSetting('sionna_diffuse_reflection', value)} />
                 <Toggle label="Refraction" checked={settings.sionna_refraction} onChange={(value) => setSetting('sionna_refraction', value)} />

@@ -158,6 +158,8 @@ body.is-resizing-log { cursor: row-resize; }
 .log-line { grid-template-columns: 75px 220px minmax(0, 1fr); padding-top: 4px; padding-bottom: 4px; font-size: 11.5px; line-height: 1.5; }
 .log-empty { font-size: 11.5px; }
 .timeline { font-size: 11px; }
+.segmented.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.toggle-field.disabled { opacity: 0.45; cursor: default; }
 
 @media (max-width: 980px) {
   body { overflow: auto; }

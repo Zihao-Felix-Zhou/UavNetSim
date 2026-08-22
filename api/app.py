@@ -34,7 +34,7 @@ class StartRequest(BaseModel):
     routing_parameters: dict[str, float] = Field(default_factory=dict)
     mac: str = "CSMA_CA"
     mobility: str = "GaussMarkov3D"
-    channel_mode: Literal["online", "offline"] = "online"
+    channel_mode: Literal["online", "hybrid", "offline"] = "online"
     samples_per_source: int = Field(default=100000, ge=100, le=10000000)
     sionna_max_depth: int = Field(default=4, ge=0, le=32)
     sionna_frequency_samples: int = Field(default=32, ge=1, le=4096)
@@ -150,7 +150,7 @@ def options():
         "mac": ["CSMA_CA", "Pure_Aloha", "TDMA"],
         "mobility": ["GaussMarkov3D", "RandomWalk3D", "RandomWaypoint3D"],
         "traffic_pattern": ["Uniform", "Poisson"],
-        "channel_mode": ["online", "offline"],
+        "channel_mode": ["online", "hybrid", "offline"],
     }
 
 
