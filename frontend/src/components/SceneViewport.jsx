@@ -117,6 +117,39 @@ function Terrain({ terrain }) {
   )
 }
 
+function SceneBoundary({ scene }) {
+  const points = useMemo(() => {
+    if (!scene.terrain) {
+      return [
+        [0, 0.35, 0],
+        [scene.size_x, 0.35, 0],
+        [scene.size_x, 0.35, -scene.size_y],
+        [0, 0.35, -scene.size_y],
+        [0, 0.35, 0],
+      ]
+    }
+
+    const { rows, columns, vertices } = scene.terrain
+    const perimeter = []
+    for (let column = 0; column < columns; column += 1) perimeter.push(vertices[column])
+    for (let row = 1; row < rows; row += 1) perimeter.push(vertices[row * columns + columns - 1])
+    for (let column = columns - 2; column >= 0; column -= 1) perimeter.push(vertices[(rows - 1) * columns + column])
+    for (let row = rows - 2; row > 0; row -= 1) perimeter.push(vertices[row * columns])
+    perimeter.push(vertices[0])
+    return perimeter.map((point) => [point.x, point.z + 0.8, -point.y])
+  }, [scene])
+
+  return (
+    <Line
+      points={points}
+      color="#f3a63a"
+      lineWidth={2.2}
+      transparent
+      opacity={0.92}
+    />
+  )
+}
+
 function Drone({ node, selected, onSelect }) {
   const group = useRef()
   useFrame((state) => {
@@ -186,6 +219,7 @@ export default function SceneViewport({ scene, nodes, arcs, selectedNode, onSele
           <meshStandardMaterial color="#24282a" roughness={0.92} />
         </mesh>}
       {!scene.terrain && <Grid position={[scene.size_x / 2, 0, -scene.size_y / 2]} args={[scene.size_x, scene.size_y]} cellSize={20} cellThickness={0.45} cellColor="#42494b" sectionSize={100} sectionThickness={0.8} sectionColor="#5d6668" fadeDistance={900} />}
+      <SceneBoundary scene={scene} />
       {scene.features.filter((feature) => feature.category === 'building').map((feature) => <Building key={feature.id} feature={feature} />)}
       {scene.features.filter((feature) => feature.category === 'water' || (!scene.terrain && feature.category === 'terrain')).map((feature) => <Surface key={feature.id} feature={feature} />)}
       {scene.features.filter((feature) => feature.category === 'road').map((feature) => (
